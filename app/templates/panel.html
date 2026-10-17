@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel — Sistema Inteligente de Atención Académica ISC</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1f2933; }
+  h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 2.5rem; border-bottom: 1px solid #d9dde2; padding-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin-top: .75rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #e4e7eb; font-size: .92rem; }
+  th { color: #52606d; font-weight: 600; }
+  .msg { padding: .7rem 1rem; border-radius: 6px; margin: 1rem 0; font-size: .92rem; }
+  .msg.ok { background: #e3f9e5; color: #1b4332; }
+  .msg.error { background: #ffe3e3; color: #7d1a1a; }
+  .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .75rem; }
+  .card { background: #f5f7fa; border-radius: 8px; padding: .9rem 1.1rem; min-width: 150px; }
+  .card .n { font-size: 1.5rem; font-weight: 700; }
+  .card .label { font-size: .8rem; color: #52606d; }
+  form.upload { margin-top: .75rem; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+  input[type=text] { padding: .4rem .5rem; border: 1px solid #cbd2d9; border-radius: 5px; }
+  button { padding: .45rem 1rem; border: none; border-radius: 5px; background: #2563eb; color: white; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  .hint { color: #7b8794; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h1>Sistema Inteligente de Atención Académica — Panel de la Coordinación</h1>
+
+{% if message %}
+<div class="msg {{ 'ok' if message_ok else 'error' }}">{{ message }}</div>
+{% endif %}
+
+<h2>Métricas de uso</h2>
+<div class="cards">
+  <div class="card"><div class="n">{{ metrics.total }}</div><div class="label">Consultas totales</div></div>
+  <div class="card"><div class="n">{{ metrics.answered }}</div><div class="label">Respondidas</div></div>
+  <div class="card"><div class="n">{{ metrics.derived }}</div><div class="label">Derivadas</div></div>
+  <div class="card"><div class="n">{{ "%.1f"|format(metrics.precision_rate * 100) }}%</div><div class="label">Precisión (meta: 90%)</div></div>
+  <div class="card"><div class="n">{{ "%.1f"|format(metrics.derivation_rate * 100) }}%</div><div class="label">Tasa de derivación</div></div>
+  <div class="card"><div class="n">{{ "%.2fs"|format(metrics.avg_response_seconds) if metrics.avg_response_seconds is not none else "—" }}</div><div class="label">Tiempo prom. resp.</div></div>
+</div>
+{% if metrics.by_reason %}
+<table>
+  <tr><th>Motivo de derivación</th><th>Cantidad</th></tr>
+  {% for reason, n in metrics.by_reason.items() %}
+  <tr><td>{{ reason }}</td><td>{{ n }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>Base de conocimiento</h2>
+<p class="hint">Documentos indexados: {{ documents|length }}</p>
+<table>
+  <tr><th>Documento</th><th>Versión</th><th>Fragmentos</th><th>Indexado</th></tr>
+  {% for d in documents %}
+  <tr><td>{{ d.name }}</td><td>{{ d.version or "—" }}</td><td>{{ d.n_chunks }}</td><td>{{ d.indexed_at[:19] }}</td></tr>
+  {% else %}
+  <tr><td colspan="4" class="hint">Todavía no hay documentos indexados.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Cargar documento</h2>
+<p class="hint">Formatos admitidos: PDF, DOCX, TXT, MD. Si subes un documento con el mismo
+nombre que uno existente, se reemplaza (se vuelve a indexar).</p>
+<form class="upload" method="post" action="/documentos/cargar" enctype="multipart/form-data">
+  <input type="file" name="archivo" required>
+  <input type="text" name="version" placeholder="versión (opcional, ej. 2026-1)">
+  <button type="submit">Cargar e indexar</button>
+</form>
+
+</body>
+</html>

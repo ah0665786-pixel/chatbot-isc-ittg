@@ -1,0 +1,5 @@
+{"q": "¿Qué requisitos necesito para solicitar una baja temporal?", "answerable": true, "expected_doc": "reglamento", "expected_terms": ["baja temporal"]}
+{"q": "¿Cuántas horas debe durar la residencia profesional?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["horas"]}
+{"q": "¿Qué porcentaje de créditos necesito para hacer residencia?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["creditos", "créditos"]}
+{"q": "¿Cuál es la capital de Francia?", "answerable": false}
+{"q": "¿Cuánto cuesta el estacionamiento del tecnológico?", "answerable": false}

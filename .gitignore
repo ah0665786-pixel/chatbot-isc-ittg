@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.log
+data/app.db
+data/app.db-shm
+data/app.db-wal
+data/loadtest.db
+data/loadtest_kb/
+data/kb/*.faiss
+data/kb/chunks.jsonl
+data/kb/manifest.json
+data/kb/meta.json
