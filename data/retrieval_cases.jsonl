@@ -12,6 +12,12 @@
 {"q": "opciones para titularse en sistemas", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
 {"q": "¿Qué tengo que hacer para obtener mi título?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
 {"q": "quiero titularme, ¿qué opciones tengo?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Qué requisitos necesito para titularme?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "¿Cuáles son los requisitos de titulación?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "¿Qué necesito para titularme?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "¿Qué me piden para titularme?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "requisitos para el título", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "¿Necesito el inglés para titularme?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
 {"q": "¿Qué requisitos necesito para solicitar una baja temporal?", "answerable": true, "expected_doc": "reglamento", "expected_terms": ["baja temporal"]}
 {"q": "¿Cuántas horas debe durar la residencia profesional?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["horas"]}
 {"q": "¿Qué porcentaje de créditos necesito para hacer residencia?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["creditos", "créditos"]}

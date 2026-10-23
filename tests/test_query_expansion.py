@@ -35,3 +35,17 @@ def test_pipeline_busca_con_la_consulta_expandida(cfg, kb, monkeypatch):
     monkeypatch.setattr(pipe.embedder, "embed_query", lambda t: seen.append(t) or real(t))
     pipe.retrieve("¿Cómo me puedo titular?")
     assert "titulación integral" in seen[0]
+
+
+@pytest.mark.parametrize("q", [
+    "¿Qué requisitos necesito para titularme?",
+    "¿Qué necesito para titularme?",
+    "¿Qué me piden para titularme?",
+    "¿Necesito el inglés para titularme?",
+    "¿Cuántos créditos debo tener para la titulación?",
+])
+def test_preguntas_de_requisitos_usan_la_expansion_de_requisitos(q):
+    # Con el texto de "opciones", el fragmento de requisitos caía del lugar 4 al 47
+    expanded = expand_query(q)
+    assert "requisitos para la titulación integral" in expanded
+    assert "tipos de proyectos" not in expanded  # solo una expansión por tema

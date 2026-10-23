@@ -136,3 +136,42 @@ def test_genuinely_invented_number_still_fails_after_citation_fix(kb, cfg):
     bad = GOOD.replace("20 días", "45 días")
     r = pipe(kb, cfg, ScriptedLLM(bad)).answer("¿Cómo solicito la baja temporal?")
     assert r.reason is Reason.VALIDATION_FAILED and "45" in r.detail
+
+
+# ---- regla 4: listas completas, sin "etc." -----------------------------------
+TRUNCATED = ("Para la baja temporal debes entregar el formato de baja temporal, copia de tu "
+             "credencial vigente, etc. (Reglamento Escolar.txt)")
+FULL_LIST = ("Para la baja temporal debes:\n1. Entregar el formato de baja temporal.\n"
+             "2. Entregar copia de tu credencial vigente.\n3. Firmar el formato.\n"
+             "(Reglamento Escolar.txt)")
+
+
+def test_prompt_pide_listas_completas(kb, cfg):
+    llm = ScriptedLLM(GOOD)
+    pipe(kb, cfg, llm).answer("¿Qué requisitos piden para la baja temporal?")
+    system = llm.calls[0][0]["content"]
+    assert "TODOS los elementos" in system and '"etc."' in system
+
+
+@pytest.mark.parametrize("marca", ["etc.", "entre otros", "entre otras cosas", "y demás"])
+def test_lista_recortada_se_rechaza(kb, cfg, marca):
+    p = pipe(kb, cfg, ScriptedLLM(GOOD))
+    hits = p.retrieve("¿Qué requisitos piden para la baja temporal?")
+    ok, why = p.validate(TRUNCATED.replace("etc.", marca), hits, "requisitos baja temporal")
+    assert not ok and "etc." in why
+
+
+def test_etc_permitido_si_el_documento_lo_dice(kb, cfg):
+    p = pipe(kb, cfg, ScriptedLLM(GOOD))
+    hits = p.retrieve("¿Qué requisitos piden para la baja temporal?")
+    from dataclasses import replace
+    chunk = replace(hits[0].chunk, text=hits[0].chunk.text + " Documentos: credencial, formato, etc.")
+    ok, why = p.validate(TRUNCATED, [Hit(chunk, hits[0].score)], "requisitos baja temporal")
+    assert ok, why
+
+
+def test_lista_recortada_reintenta_pidiendo_la_lista_completa(kb, cfg):
+    llm = ScriptedLLM(TRUNCATED, FULL_LIST)
+    r = pipe(kb, cfg, llm).answer("¿Qué requisitos piden para la baja temporal?")
+    assert r.outcome is Outcome.ANSWERED and r.attempts == 2 and r.text == FULL_LIST
+    assert "sin resumir" in llm.calls[1][-1]["content"]
