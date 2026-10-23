@@ -73,6 +73,8 @@ def main(argv=None) -> int:
     ap.add_argument("--messages", type=int, default=1)
     ap.add_argument("--real-llm", action="store_true",
                     help="usa el LLM real de .env en vez del simulado (cuidado con la cuota)")
+    ap.add_argument("--kb-real", action="store_true",
+                    help="loadtest con la base de conocimiento completa y BD de carga aparte")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     cfg = Settings.from_env()
@@ -100,11 +102,15 @@ def main(argv=None) -> int:
                 print(f"[{e.name}] FALLA: {ex}")
         return rc
 
-    # 'loadtest' sin --real-llm arma su propio entorno aislado (no necesita
-    # el modelo de embeddings real ni tu base de conocimiento real).
+    # 'loadtest' sin --real-llm arma su propio entorno (sandbox, o con --kb-real
+    # la base de conocimiento completa) y su propia BD: no toca la base real.
     if a.cmd == "loadtest" and not a.real_llm:
-        results, wall = load_mod.run(cfg, n_users=a.n_users, messages_per_user=a.messages)
-        load_mod.print_report(results, wall, a.n_users, False)
+        results, wall = load_mod.run(cfg, n_users=a.n_users, messages_per_user=a.messages,
+                                     real_kb=a.kb_real)
+        load_mod.print_report(results, wall, a.n_users, False, a.kb_real)
+        out = load_mod.save_report(results, wall, a.n_users,
+                                   load_mod.mode_label(False, a.kb_real))
+        print(f"\nResultado guardado en {out}")
         return 0
 
     try:
@@ -159,6 +165,8 @@ def main(argv=None) -> int:
         results, wall = load_mod.run(cfg, n_users=a.n_users, messages_per_user=a.messages,
                                      real_llm=True)
         load_mod.print_report(results, wall, a.n_users, True)
+        out = load_mod.save_report(results, wall, a.n_users, load_mod.mode_label(True))
+        print(f"\nResultado guardado en {out}")
 
     rt.repo.close()
     return 0

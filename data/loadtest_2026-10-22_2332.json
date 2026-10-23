@@ -1,0 +1,156 @@
+{
+  "fecha": "2026-10-22T23:32:13-06:00",
+  "modo": "base de conocimiento completa + LLM simulado (BD de carga aparte)",
+  "usuarios_concurrentes": 20,
+  "consultas": 20,
+  "tiempo_total_s": 1.95,
+  "promedio_s": 1.481,
+  "p95_s": 1.775,
+  "max_s": 1.939,
+  "errores": 0,
+  "resultados": {
+    "answered": 20
+  },
+  "consultas_detalle": [
+    {
+      "user": "carga-015",
+      "ok": true,
+      "seconds": 0.8928903730002276,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-007",
+      "ok": true,
+      "seconds": 1.1925790199993571,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-013",
+      "ok": true,
+      "seconds": 1.2006206959995325,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-017",
+      "ok": true,
+      "seconds": 1.2065656479999234,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-003",
+      "ok": true,
+      "seconds": 1.2350545359995522,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-011",
+      "ok": true,
+      "seconds": 1.2686658259999604,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-005",
+      "ok": true,
+      "seconds": 1.3646137069999895,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-010",
+      "ok": true,
+      "seconds": 1.4133309930002724,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-008",
+      "ok": true,
+      "seconds": 1.4195757620000222,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-004",
+      "ok": true,
+      "seconds": 1.4277750480005125,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-006",
+      "ok": true,
+      "seconds": 1.511554108999917,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-000",
+      "ok": true,
+      "seconds": 1.5777032259993575,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-009",
+      "ok": true,
+      "seconds": 1.6006767859998945,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-014",
+      "ok": true,
+      "seconds": 1.6673359329997766,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-019",
+      "ok": true,
+      "seconds": 1.6933431739998923,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-018",
+      "ok": true,
+      "seconds": 1.718302352000137,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-012",
+      "ok": true,
+      "seconds": 1.7435479470004793,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-001",
+      "ok": true,
+      "seconds": 1.7616536189998442,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-002",
+      "ok": true,
+      "seconds": 1.7751344170001175,
+      "outcome": "answered",
+      "error": ""
+    },
+    {
+      "user": "carga-016",
+      "ok": true,
+      "seconds": 1.9394424470001468,
+      "outcome": "answered",
+      "error": ""
+    }
+  ]
+}

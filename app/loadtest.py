@@ -5,12 +5,20 @@ reales, y un LLM simulado con latencia realista por defecto, para medir la
 concurrencia de nuestro propio código (SQLite, validación, pipeline) sin
 depender de los límites de Groq (ver docs/capacidad-y-costos.md).
 
+Con --kb-real usa la base de conocimiento COMPLETA (embeddings e índice
+reales, preguntas reales de data/retrieval_cases.jsonl) con el LLM simulado y
+una base de datos aparte (<base>_carga en PostgreSQL, o SQLite aislado). Mide
+el sistema tal como corre en producción salvo el proveedor externo, sin gastar
+cuota ni ensuciar las métricas reales.
+
 Con --real-llm usa el proveedor configurado en .env, sobre tus datos reales,
 para una muestra pequeña de latencia auténtica — ten en cuenta el límite del
 plan gratuito antes de pedir muchos usuarios con esta opción."""
 from __future__ import annotations
 
+import json
 import random
+import re
 import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -62,6 +70,22 @@ class FakeFastLLM:
             "fake", "fake-fast")
 
 
+class FakeGroundedLLM(FakeFastLLM):
+    """Como FakeFastLLM, pero contesta con texto del primer fragmento del
+    CONTEXTO: así la respuesta pasa la validación de sustento igual que una
+    real, y la prueba recorre el camino completo (sin reintentos artificiales)."""
+
+    _FIRST = re.compile(r"\[1\] \((.*?)\) (.*?)(?:\n\n\[2\]|\n\nPREGUNTA:)", re.S)
+
+    def chat(self, messages, temperature: float = 0.3, max_tokens: int = 900) -> LLMReply:
+        time.sleep(random.uniform(self.min_s, self.max_s))
+        m = self._FIRST.search(messages[-1]["content"])
+        if not m:
+            return LLMReply("NO_INFO", "fake", "fake-grounded")
+        words = m.group(2).split()[:40]
+        return LLMReply(f"{' '.join(words)} ({m.group(1)})", "fake", "fake-grounded")
+
+
 @dataclass
 class RequestResult:
     user: str
@@ -100,16 +124,64 @@ def _sandbox_service(cfg: Settings, llm_min_s: float, llm_max_s: float) -> Conve
     return ConversationService(test_cfg, repo, pipeline)
 
 
+def _isolated_repo(cfg: Settings):
+    """Base de datos aparte, recreada en cada corrida. Con DATABASE_URL se usa
+    PostgreSQL (el mismo motor que el bot, en una base <nombre>_carga del mismo
+    servidor); si no, un SQLite aislado. Nunca la base real."""
+    if not cfg.database_url:
+        db = Path("data/loadtest.db")
+        for suffix in ("", "-wal", "-shm"):
+            Path(str(db) + suffix).unlink(missing_ok=True)
+        return SqliteRepository(db, cfg.session_timeout_minutes)
+
+    import psycopg2
+    from psycopg2.extensions import make_dsn, parse_dsn
+
+    from app.adapters.db_postgres import PostgresRepository
+
+    params = parse_dsn(cfg.database_url)
+    test_db = f"{params['dbname']}_carga"
+    admin = psycopg2.connect(cfg.database_url)
+    admin.autocommit = True  # CREATE/DROP DATABASE no pueden ir en transacción
+    with admin.cursor() as cur:
+        cur.execute(f'DROP DATABASE IF EXISTS "{test_db}"')
+        cur.execute(f'CREATE DATABASE "{test_db}"')
+    admin.close()
+    return PostgresRepository(make_dsn(cfg.database_url, dbname=test_db),
+                              cfg.session_timeout_minutes)
+
+
+def _load_questions(path: Path = Path("data/retrieval_cases.jsonl")) -> list[str]:
+    """Preguntas reales con respuesta en los documentos; si no hay archivo, las de ejemplo."""
+    try:
+        rows = [json.loads(l) for l in path.read_text("utf-8").splitlines() if l.strip()]
+    except FileNotFoundError:
+        return SAMPLE_QUESTIONS
+    return [r["q"] for r in rows if r.get("answerable", True)] or SAMPLE_QUESTIONS
+
+
+def _real_kb_service(cfg: Settings, llm_min_s: float, llm_max_s: float) -> ConversationService:
+    """Base de conocimiento completa y embeddings reales; LLM simulado y BD aparte.
+    Solo LEE el índice (no lo guarda), así que no toca la base de conocimiento."""
+    from app.runtime import build_embedder
+
+    emb = build_embedder(cfg)
+    kb = KnowledgeBase.open(cfg, emb)
+    pipeline = RagPipeline(cfg, emb, kb.store, FakeGroundedLLM(llm_min_s, llm_max_s))
+    return ConversationService(cfg, _isolated_repo(cfg), pipeline)
+
+
 def _real_service(cfg: Settings) -> ConversationService:
     """Entorno real: tu base de conocimiento, tu BD, tu cadena de proveedores."""
     rt = build_runtime(cfg)
     return ConversationService(cfg, rt.repo, rt.pipeline)
 
 
-def _one_user(svc: ConversationService, user_id: str, n_messages: int) -> list[RequestResult]:
+def _one_user(svc: ConversationService, user_id: str, n_messages: int,
+              questions: list[str] = SAMPLE_QUESTIONS) -> list[RequestResult]:
     out = []
     for _ in range(n_messages):
-        q = random.choice(SAMPLE_QUESTIONS)
+        q = random.choice(questions)
         t0 = time.perf_counter()
         try:
             result, _ = svc.handle_message(user_id, user_id, q)
@@ -123,12 +195,19 @@ def _one_user(svc: ConversationService, user_id: str, n_messages: int) -> list[R
 
 def run(cfg: Settings, n_users: int = 20, messages_per_user: int = 1,
         real_llm: bool = False, llm_min_s: float = 0.3,
-        llm_max_s: float = 1.2) -> tuple[list[RequestResult], float]:
-    svc = _real_service(cfg) if real_llm else _sandbox_service(cfg, llm_min_s, llm_max_s)
+        llm_max_s: float = 1.2, real_kb: bool = False) -> tuple[list[RequestResult], float]:
+    questions = SAMPLE_QUESTIONS
+    if real_llm:
+        svc = _real_service(cfg)
+    elif real_kb:
+        svc = _real_kb_service(cfg, llm_min_s, llm_max_s)
+        questions = _load_questions()
+    else:
+        svc = _sandbox_service(cfg, llm_min_s, llm_max_s)
     t0 = time.perf_counter()
     results: list[RequestResult] = []
     with ThreadPoolExecutor(max_workers=n_users) as pool:
-        futures = [pool.submit(_one_user, svc, f"carga-{i:03d}", messages_per_user)
+        futures = [pool.submit(_one_user, svc, f"carga-{i:03d}", messages_per_user, questions)
                   for i in range(n_users)]
         for f in as_completed(futures):
             results.extend(f.result())
@@ -137,19 +216,63 @@ def run(cfg: Settings, n_users: int = 20, messages_per_user: int = 1,
     return results, wall
 
 
-def print_report(results: list[RequestResult], wall: float, n_users: int, real_llm: bool) -> None:
+def _p95(times: list[float]) -> float:
+    """Percentil 95 por rango más cercano (con 20 consultas: la 19.ª más lenta)."""
+    return sorted(times)[max(0, int(len(times) * 0.95) - 1)]
+
+
+def mode_label(real_llm: bool, real_kb: bool = False) -> str:
+    if real_llm:
+        return "LLM real (.env)"
+    if real_kb:
+        return "base de conocimiento completa + LLM simulado (BD de carga aparte)"
+    return "LLM simulado (sandbox aislado, no toca tus datos)"
+
+
+def save_report(results: list[RequestResult], wall: float, n_users: int, mode: str,
+                directory: Path = Path("data"), extra: dict | None = None, now=None) -> Path:
+    """Guarda el resultado en data/loadtest_AAAA-MM-DD_HHMM.json."""
+    from collections import Counter
+    from dataclasses import asdict
+    from datetime import datetime
+
+    now = now or datetime.now().astimezone()
+    times = [r.seconds for r in results]
+    path = Path(directory) / f"loadtest_{now:%Y-%m-%d_%H%M}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "fecha": now.isoformat(timespec="seconds"),
+        "modo": mode,
+        "usuarios_concurrentes": n_users,
+        "consultas": len(results),
+        "tiempo_total_s": round(wall, 3),
+        "promedio_s": round(statistics.mean(times), 3),
+        "p95_s": round(_p95(times), 3),
+        "max_s": round(max(times), 3),
+        "errores": sum(not r.ok for r in results),
+        "resultados": dict(Counter(r.outcome or "error" for r in results)),
+        **(extra or {}),
+        "consultas_detalle": [asdict(r) for r in results],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def print_report(results: list[RequestResult], wall: float, n_users: int, real_llm: bool,
+                 real_kb: bool = False) -> None:
     times = [r.seconds for r in results]
     errors = [r for r in results if not r.ok]
-    modo = "LLM real (.env)" if real_llm else "LLM simulado (sandbox aislado, no toca tus datos)"
+    modo = mode_label(real_llm, real_kb)
     print(f"\n=== Prueba de carga: {n_users} usuarios concurrentes — {modo} ===")
     print(f"Consultas totales        : {len(results)}")
     print(f"Tiempo total (pared)     : {wall:.2f} s")
     print(f"Tiempo de respuesta prom.: {statistics.mean(times):.2f} s")
     if len(times) > 1:
-        p95 = sorted(times)[max(0, int(len(times) * 0.95) - 1)]
-        print(f"Tiempo de respuesta p95  : {p95:.2f} s")
+        print(f"Tiempo de respuesta p95  : {_p95(times):.2f} s")
     print(f"Tiempo de respuesta máx. : {max(times):.2f} s  (RNF-EF-01: meta <= 30 s)")
     print(f"Rendimiento              : {len(results)/wall:.1f} consultas/segundo")
+    from collections import Counter
+    counts = Counter(r.outcome or "error" for r in results)
+    print(f"Resultados               : " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     print(f"Errores                  : {len(errors)}/{len(results)}  (RNF-EF-02: meta 0)")
     for e in errors:
         print(f"  - {e.user}: {e.error}")

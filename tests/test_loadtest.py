@@ -76,3 +76,57 @@ def test_all_sample_questions_actually_reach_the_llm(cfg):
                 f"concurrencia real")
     finally:
         svc.repo.close()
+
+
+def test_fake_grounded_llm_pasa_la_validacion_real(kb, cfg):
+    # Si la respuesta simulada no pasara la validación, la carga mediría
+    # reintentos artificiales en vez del camino normal.
+    from app.domain import Outcome
+    from app.loadtest import FakeGroundedLLM
+    from app.rag.pipeline import RagPipeline
+
+    pipe = RagPipeline(cfg, kb.embedder, kb.store, FakeGroundedLLM(0, 0))
+    r = pipe.answer("¿Cómo solicito la baja temporal?")
+    assert r.outcome is Outcome.ANSWERED and r.attempts == 1
+
+
+def test_save_report_guarda_cifras_con_fecha(tmp_path):
+    import json
+    from datetime import datetime
+    from app.loadtest import RequestResult, save_report
+
+    results = [RequestResult(f"u{i}", True, float(i), outcome="answered") for i in range(1, 21)]
+    results[0] = RequestResult("u1", False, 1.0, error="Timeout")
+    path = save_report(results, 21.0, 20, "prueba", tmp_path, now=datetime(2026, 10, 22, 23, 40))
+    assert path.name == "loadtest_2026-10-22_2340.json"
+    d = json.loads(path.read_text("utf-8"))
+    assert d["consultas"] == 20 and d["errores"] == 1
+    assert d["p95_s"] == 19.0 and d["max_s"] == 20.0 and d["promedio_s"] == 10.5
+    assert d["resultados"] == {"error": 1, "answered": 19}
+
+
+def test_kb_real_usa_bd_de_carga_aparte(cfg, monkeypatch, tmp_path):
+    # Nunca la base real: con PostgreSQL apunta a <nombre>_carga
+    from dataclasses import replace
+    import app.adapters.db_postgres as pg
+    import psycopg2
+    from app.loadtest import _isolated_repo
+
+    sql, dsns = [], []
+
+    class FakeCursor:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def execute(self, q): sql.append(q)
+
+    class FakeConn:
+        autocommit = False
+        def cursor(self): return FakeCursor()
+        def close(self): pass
+
+    monkeypatch.setattr(psycopg2, "connect", lambda dsn, **k: FakeConn())
+    monkeypatch.setattr(pg, "PostgresRepository", lambda dsn, t: dsns.append(dsn) or "repo")
+    real = replace(cfg, database_url="postgresql://u:p@db:5432/chatbot_isc")
+    assert _isolated_repo(real) == "repo"
+    assert "dbname=chatbot_isc_carga" in dsns[0]
+    assert sql == ['DROP DATABASE IF EXISTS "chatbot_isc_carga"', 'CREATE DATABASE "chatbot_isc_carga"']
