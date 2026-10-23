@@ -28,7 +28,7 @@ def run(golden: Path, pipeline, k: int) -> dict:
     ans_best, unans_best, rows = [], [], []
     hit1 = hitk = 0
     for it in items:
-        hits = pipeline.store.search(pipeline.embedder.embed_query(it["q"]), k)
+        hits = pipeline.retrieve(it["q"], k)  # misma búsqueda que el bot (con expansión)
         top = hits[0].score if hits else 0.0
         if it.get("answerable", True):
             rel = [i for i, h in enumerate(hits) if _relevant(h, it)]

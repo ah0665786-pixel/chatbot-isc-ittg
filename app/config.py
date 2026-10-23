@@ -31,7 +31,10 @@ class Settings:
     chunk_words: int = 180
     chunk_overlap_words: int = 30
     top_k: int = 5
-    sim_threshold: float = 0.75
+    # 0.80 medido con data/retrieval_cases.jsonl: la pregunta válida más baja
+    # sacó 0.844; descarta lo claramente ajeno (0.77-0.80). Más alto rechaza
+    # preguntas válidas: este modelo da puntajes muy juntos (ver query_expansion.py).
+    sim_threshold: float = 0.80
     grounding_min: float = 0.45
     max_question_chars: int = 1000
     history_turns: int = 6
@@ -110,7 +113,7 @@ class Settings:
             chunk_words=i_("CHUNK_WORDS", 180),
             chunk_overlap_words=i_("CHUNK_OVERLAP_WORDS", 30),
             top_k=i_("TOP_K", 5),
-            sim_threshold=f("SIM_THRESHOLD", 0.75),
+            sim_threshold=f("SIM_THRESHOLD", 0.80),
             grounding_min=f("GROUNDING_MIN", 0.45),
             kb_dir=Path(os.getenv("KB_DIR", "data/kb")),
             docs_dir=Path(os.getenv("DOCS_DIR", "data/docs")),

@@ -1,0 +1,25 @@
+{"q": "¿Qué opciones de titulación existen?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Cuáles son las opciones de titulación integral?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Cómo me puedo titular?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Qué formas hay de titularme?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿De qué maneras me puedo titular?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Qué modalidades de titulación hay?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Cómo me titulo?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Me puedo titular con la residencia profesional?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Puedo titularme con el EGEL del CENEVAL?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Es obligatorio hacer tesis para titularme?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Cuáles son los tipos de proyecto para titulación?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "opciones para titularse en sistemas", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Qué tengo que hacer para obtener mi título?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "quiero titularme, ¿qué opciones tengo?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Qué requisitos necesito para solicitar una baja temporal?", "answerable": true, "expected_doc": "reglamento", "expected_terms": ["baja temporal"]}
+{"q": "¿Cuántas horas debe durar la residencia profesional?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["horas"]}
+{"q": "¿Qué porcentaje de créditos necesito para hacer residencia?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["creditos", "créditos"]}
+{"q": "¿Cuál es la capital de Francia?", "answerable": false}
+{"q": "¿Cuánto cuesta el estacionamiento del tecnológico?", "answerable": false}
+{"q": "Dame una receta de enchiladas", "answerable": false}
+{"q": "¿Quién ganó el mundial de 2022?", "answerable": false}
+{"q": "¿Cómo instalo Python en Windows?", "answerable": false}
+{"q": "Escribe un poema sobre el mar", "answerable": false}
+{"q": "¿Qué clima hará mañana en Tuxtla?", "answerable": false}
+{"q": "Recomiéndame una película", "answerable": false}
