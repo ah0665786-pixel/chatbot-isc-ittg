@@ -1,0 +1,19 @@
+.git
+.gitignore
+.venv
+.pytest_cache
+**/__pycache__
+**/*.pyc
+*.log
+
+# Secretos: se inyectan con env_file en docker-compose.yml, nunca dentro de la imagen
+.env
+
+# Datos: se montan como volumen (./data -> /app/data), no se copian a la imagen
+data
+
+tests
+docs
+Dockerfile
+docker-compose.yml
+.dockerignore

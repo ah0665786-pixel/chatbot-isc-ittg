@@ -94,6 +94,9 @@ def _now(now: datetime | None) -> datetime:
     return now or datetime.now(timezone.utc)
 
 
+_SCHEMA_LOCK_ID = 727_001  # id arbitrario del candado para crear el esquema
+
+
 def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
 
@@ -112,6 +115,11 @@ class PostgresRepository:
         self._conn = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.RealDictCursor)
         self._conn.autocommit = False
         with self._conn, self._conn.cursor() as cur:
+            # CREATE TABLE IF NOT EXISTS no es seguro en paralelo en PostgreSQL:
+            # si bot y panel arrancan a la vez contra una base nueva, uno falla
+            # con UniqueViolation en pg_type. El candado consultivo (se libera
+            # al terminar la transacción) hace que creen el esquema por turnos.
+            cur.execute("SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_ID,))
             cur.execute(SCHEMA)
 
     def close(self) -> None:

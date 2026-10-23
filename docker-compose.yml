@@ -1,0 +1,65 @@
+# Uso:
+#   docker compose up --build -d
+#   docker compose run --rm bot python -m app.cli ingest --version 2026-1   (indexar documentos)
+#   docker compose logs -f bot
+#
+# Requiere en .env: TELEGRAM_BOT_TOKEN, ADMIN_PASSWORD, POSTGRES_PASSWORD y las API keys del LLM.
+
+x-app: &app
+  # Sin "image:" fijo: si bot y admin comparten nombre de imagen, compose los
+  # construye en paralelo y choca al etiquetar. Así cada uno tiene su etiqueta
+  # pero reutilizan las mismas capas en caché.
+  build: .
+  env_file: .env
+  environment:
+    # Sobrescriben lo que diga .env (que apunta a localhost para correr fuera de Docker):
+    # bot y panel usan la MISMA base, el servicio db de este compose.
+    DATABASE_URL: postgresql://${POSTGRES_USER:-chatbot}:${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}@db:5432/${POSTGRES_DB:-chatbot_isc}
+    KB_DIR: /app/data/kb
+    DOCS_DIR: /app/data/docs
+  volumes:
+    # Documentos e índice FAISS compartidos: el panel indexa y el bot recarga
+    # en caliente (KBWatcher) sin reiniciarse.
+    - ./data:/app/data
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chatbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-chatbot_isc}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    # Sin "ports": la base solo es accesible desde la red interna de compose.
+
+  bot:
+    <<: *app
+    command: ["python", "-m", "app.telegram_bot"]
+
+  admin:
+    <<: *app
+    command: ["python", "-m", "app.web_admin"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-chatbot}:${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}@db:5432/${POSTGRES_DB:-chatbot_isc}
+      KB_DIR: /app/data/kb
+      DOCS_DIR: /app/data/docs
+      ADMIN_HOST: 0.0.0.0  # dentro del contenedor; el puerto del host sigue limitado abajo
+      ADMIN_PORT: "8000"
+    ports:
+      # Solo localhost del host: el panel ve datos de estudiantes. Para exponerlo
+      # en un servidor, ponerlo detrás de un proxy con HTTPS.
+      - "127.0.0.1:${ADMIN_PORT:-8000}:8000"
+
+volumes:
+  pgdata:

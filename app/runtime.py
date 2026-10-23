@@ -28,14 +28,19 @@ def build_embedder(cfg: Settings, fake: bool = False) -> Embedder:
     return SentenceTransformerEmbedder(cfg.embed_model, cfg.embed_query_prefix, cfg.embed_doc_prefix)
 
 
+def build_repository(cfg: Settings) -> SqliteRepository:
+    """PostgreSQL si DATABASE_URL tiene valor; si no, SQLite. Bot, panel y CLI
+    pasan por aquí para usar siempre la misma base de datos."""
+    if cfg.database_url:
+        from app.adapters.db_postgres import PostgresRepository
+        return PostgresRepository(cfg.database_url, cfg.session_timeout_minutes)
+    return SqliteRepository(cfg.db_path, cfg.session_timeout_minutes)
+
+
 def build_runtime(cfg: Settings, fake_embeddings: bool = False, rebuild: bool = False) -> Runtime:
     emb = build_embedder(cfg, fake_embeddings)
     kb = KnowledgeBase.open(cfg, emb, rebuild=rebuild)
     llm = build_llm(cfg.llm_endpoints, cfg.llm_timeout, cfg.llm_max_retries, cfg.llm_total_budget)
-    if cfg.database_url:
-        from app.adapters.db_postgres import PostgresRepository
-        repo = PostgresRepository(cfg.database_url, cfg.session_timeout_minutes)
-    else:
-        repo = SqliteRepository(cfg.db_path, cfg.session_timeout_minutes)
+    repo = build_repository(cfg)
     watcher = KBWatcher(kb_dir=cfg.kb_dir)
     return Runtime(cfg, emb, kb, llm, RagPipeline(cfg, emb, kb.store, llm, watcher=watcher), repo)

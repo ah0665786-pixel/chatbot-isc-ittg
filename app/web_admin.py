@@ -22,7 +22,6 @@ from fastapi.templating import Jinja2Templates
 from app.admin_service import AdminService
 from app.config import Settings
 from app.rag.knowledge_base import KnowledgeBase
-from app.adapters.db_sqlite import SqliteRepository
 
 log = logging.getLogger("web_admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -94,8 +93,10 @@ def main() -> None:
 
     embedder = SentenceTransformerEmbedder(cfg.embed_model, cfg.embed_query_prefix,
                                            cfg.embed_doc_prefix)
+    from app.runtime import build_repository
+
     kb = KnowledgeBase.open(cfg, embedder)
-    repo = SqliteRepository(cfg.db_path, cfg.session_timeout_minutes)
+    repo = build_repository(cfg)  # misma base que el bot (PostgreSQL si hay DATABASE_URL)
     app = build_app(cfg, AdminService(cfg, kb, repo))
 
     log.info("Panel disponible en http://%s:%s/panel (usuario: %s)",

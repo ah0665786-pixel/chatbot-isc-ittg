@@ -6,6 +6,9 @@ pypdf>=5.0
 python-docx>=1.1
 python-dotenv>=1.0
 
+# PostgreSQL (se usa cuando DATABASE_URL tiene valor; si no, SQLite)
+psycopg2-binary>=2.9
+
 # Embeddings locales (solo en la máquina de desarrollo/servidor real)
 sentence-transformers>=3.0
 
