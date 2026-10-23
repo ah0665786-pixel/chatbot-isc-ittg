@@ -19,8 +19,11 @@ def _relevant(hit, item: dict) -> bool:
     doc = guards.normalize(item.get("expected_doc", ""))
     if doc and doc not in guards.normalize(hit.chunk.doc_id + " " + hit.chunk.doc_name):
         return False
-    terms = [guards.normalize(t) for t in item.get("expected_terms", [])]
-    return not terms or any(t in guards.normalize(hit.chunk.text) for t in terms)
+    terms = [" ".join(guards.normalize(t).split()) for t in item.get("expected_terms", [])]
+    # Se juntan espacios y saltos de línea: en el texto extraído de los PDF una
+    # frase suele quedar partida en dos renglones y nunca coincidiría.
+    text = " ".join(guards.normalize(hit.chunk.text).split())
+    return not terms or any(t in text for t in terms)
 
 
 def run(golden: Path, pipeline, k: int) -> dict:

@@ -28,7 +28,23 @@ from app.rag import guards
 _TITULACION = re.compile(r"\btitul\w*")  # titular, titularme, titulación, título...
 _REQUISITOS = re.compile(r"\b(requisit\w*|necesit\w*|pide\w*|piden|ingles|idioma|lengua\w*"
                          r"|credito\w*|constancia\w*)\b")
+_CONVALIDACION = re.compile(r"\b(convalid|revalid)\w*")
+_DEFINICION = re.compile(r"\bque (es|son|significa)\b|\ben que consiste\b|\bdefinicion\b")
+# Reprobar/repetir SOLO junto a materia/asignatura (o el nombre del curso): así
+# "¿Puedo repetir la residencia?" no se lleva esta expansión.
+# Ojo con la conjugación: "repruebo", "repito" no empiezan con "reprob"/"repet".
+_REPROBAR = r"(reprob|reprueb|repet|repit)\w*"
+_REPETICION = re.compile(rf"\b(materia|asignatura)s?\b.*\b{_REPROBAR}"
+                         rf"|\b{_REPROBAR}\b.*\b(materia|asignatura)s?\b"
+                         r"|\bcurso (especial|de repeticion)\b|\ben repeticion\b")
+_ACTIVIDADES = re.compile(r"\bactividad(es)? complementaria")
+# Solo preguntas de créditos/horas/plazos: con "¿Qué son?", "¿cómo se acredita?"
+# o la del inglés, la expansión las empeoraba (de 2.º a 8.º); sin ella ya salen bien.
+_CREDITOS_PLAZO = re.compile(r"\b(credito\w*|maximo|valor|vale|horas?|semestres?|plazo"
+                             r"|cuando|hasta|tiempo|limite)\b")
 
+# Los textos usan el VOCABULARIO del documento, no la respuesta: si el
+# documento cambia, la expansión no debe empujar hacia un dato viejo.
 EXPANSIONS: list[tuple[re.Pattern[str], re.Pattern[str] | None, str]] = [
     (_TITULACION, _REQUISITOS,
      "Titulación integral: requisitos para la titulación integral "
@@ -36,6 +52,22 @@ EXPANSIONS: list[tuple[re.Pattern[str], re.Pattern[str] | None, str]] = [
     (_TITULACION, None,
      "Titulación integral: tipos de proyectos de titulación integral "
      "(residencia profesional, tesis, tesina, EGEL)."),
+    # "¿Qué es la convalidación?": la definición quedaba 8.ª, detrás de otros
+    # fragmentos del mismo capítulo.
+    (_CONVALIDACION, _DEFINICION,
+     "Convalidación de estudios: definición y caracterización, equiparación y "
+     "validación de asignaturas de un plan de estudios a otro."),
+    # "repruebo una materia": el documento dice "no acreditó la asignatura" y el
+    # cuestionario de hábitos de estudio (Manual-snest-alumnos) ganaba por
+    # parecerse al lenguaje del estudiante. El correcto quedaba 13.º a 57.º.
+    (_REPETICION, None,
+     "Curso de repetición y curso especial: el estudiante no acreditó la asignatura "
+     "en el curso ordinario y la cursa por segunda vez o por tercera vez."),
+    # Créditos, horas y plazos quedaban 4.º-8.º (el capítulo tiene muchos
+    # fragmentos parecidos: tareas del profesor, evaluación...). Con esto, 1.º-2.º.
+    (_ACTIVIDADES, _CREDITOS_PLAZO,
+     "Políticas de operación de las actividades complementarias: valor curricular, "
+     "créditos, horas efectivas y semestres."),
 ]
 
 

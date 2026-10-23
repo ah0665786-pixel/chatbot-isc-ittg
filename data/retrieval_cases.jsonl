@@ -21,6 +21,37 @@
 {"q": "¿Qué requisitos necesito para solicitar una baja temporal?", "answerable": true, "expected_doc": "reglamento", "expected_terms": ["baja temporal"]}
 {"q": "¿Cuántas horas debe durar la residencia profesional?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["horas"]}
 {"q": "¿Qué porcentaje de créditos necesito para hacer residencia?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["creditos", "créditos"]}
+{"q": "¿Cuántas horas dura el servicio social?", "answerable": true, "tema": "servicio social", "expected_terms": ["480", "un credito equivale a 50 horas"]}
+{"q": "¿Cuándo puedo empezar mi servicio social?", "answerable": true, "tema": "servicio social", "expected_terms": ["70% de los creditos", "70% de creditos", "prestar su servicio social una vez aprobado"]}
+{"q": "¿Qué porcentaje de créditos necesito para hacer el servicio social?", "answerable": true, "tema": "servicio social", "expected_terms": ["70% de los creditos", "70% de creditos", "prestar su servicio social una vez aprobado"]}
+{"q": "¿En cuánto tiempo tengo que terminar el servicio social?", "answerable": true, "tema": "servicio social", "expected_terms": ["no menor de 6 meses", "seis meses y no mayor de dos anos", "periodo no menor de seis meses"]}
+{"q": "¿Cuántos créditos vale el servicio social?", "answerable": true, "tema": "servicio social", "expected_terms": ["valor de 10 creditos"]}
+{"q": "¿En qué lugares puedo hacer mi servicio social?", "answerable": true, "tema": "servicio social", "expected_terms": ["dependencias publicas"]}
+{"q": "¿Cuánto tiempo dura la residencia profesional?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["debiendo acumularse 500 horas", "cuatro meses como tiempo minimo"]}
+{"q": "¿Cuántas horas necesito juntar en la residencia?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["debiendo acumularse 500 horas", "cuatro meses como tiempo minimo"]}
+{"q": "¿Qué requisitos piden para entrar a residencia profesional?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["tener aprobado al menos el 80%"]}
+{"q": "¿Puedo hacer residencias si no he liberado el servicio social?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["tener aprobado al menos el 80%"]}
+{"q": "¿Cuántos créditos vale la residencia profesional?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["valor curricular para la residencia"]}
+{"q": "¿Puedo repetir la residencia si la repruebo?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["se cursa por una unica ocasion"]}
+{"q": "¿Qué es la convalidación de estudios?", "answerable": true, "tema": "convalidación de estudios", "expected_terms": ["equiparacion y validacion de asignaturas", "correspondencia relativa o total"]}
+{"q": "Si me cambio de carrera, ¿me reconocen las materias que ya pasé?", "answerable": true, "tema": "convalidación de estudios", "expected_terms": ["cambiar de un plan de estudio a otro", "en caso de cambio de carrera"]}
+{"q": "¿Cómo hago para que me revaliden materias al cambiarme de plan de estudios?", "answerable": true, "tema": "convalidación de estudios", "expected_terms": ["cambiar de un plan de estudio a otro", "en caso de cambio de carrera"]}
+{"q": "¿Hasta qué semestre puedo pedir la convalidación?", "answerable": true, "tema": "convalidación de estudios", "expected_terms": ["cuarto semestre"]}
+{"q": "¿Puedo estudiar una segunda carrera en el Tec?", "answerable": true, "tema": "convalidación de estudios", "expected_terms": ["segunda carrera"]}
+{"q": "Me dieron de baja definitiva, ¿puedo entrar a otra carrera y que me cuenten lo que llevaba?", "answerable": true, "tema": "convalidación de estudios", "expected_terms": ["baja definitiva habiendo", "50% de creditos o mas"]}
+{"q": "¿Qué pasa si repruebo una materia?", "answerable": true, "tema": "repetición de materias", "expected_terms": ["el curso de repeticion es cuando", "derecho a repetir la asignatura", "obligatoria en el periodo posterior"]}
+{"q": "¿Cuántas veces puedo cursar la misma materia?", "answerable": true, "tema": "repetición de materias", "expected_terms": ["por tercera vez", "por unica vez en un curso especial"]}
+{"q": "¿Qué es el curso especial?", "answerable": true, "tema": "repetición de materias", "expected_terms": ["el curso especial es cuando", "el curso especial: se efectua cuando"]}
+{"q": "¿Qué pasa si repruebo el curso especial?", "answerable": true, "tema": "repetición de materias", "expected_terms": ["no acredita la asignatura en el curso especial", "acreditacion de una asignatura en curso especial"]}
+{"q": "¿Tengo que volver a meter la materia reprobada el siguiente semestre?", "answerable": true, "tema": "repetición de materias", "expected_terms": ["obligatoria en el periodo posterior"]}
+{"q": "Reprobé una materia en repetición, ¿qué sigue?", "answerable": true, "tema": "repetición de materias", "expected_terms": ["el curso especial es cuando", "por unica vez en un curso especial", "el curso especial: se efectua cuando"]}
+{"q": "¿Cuántos créditos de actividades complementarias necesito?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["valor curricular para el conjunto de", "cubrir los cinco creditos"]}
+{"q": "¿Qué son las actividades complementarias?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["actividades complementarias pueden ser", "en beneficio de su formacion integral con el objetivo"]}
+{"q": "¿Cuántas horas equivale un crédito de actividades complementarias?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["veinte horas efectivas", "20 horas"]}
+{"q": "¿Hasta qué semestre tengo para cubrir las actividades complementarias?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["seis primeros semestres"]}
+{"q": "¿El inglés cuenta como actividad complementaria?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["lengua extranjera no es actividad complementaria"]}
+{"q": "¿Cómo se acredita una actividad complementaria?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["para que se acredite una actividad complementaria", "constancia de liberacion de actividades complementarias"]}
+{"q": "¿Cuántos créditos puede valer como máximo una sola actividad complementaria?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["mas de dos creditos", "mas de 2 creditos"]}
 {"q": "¿Cuál es la capital de Francia?", "answerable": false}
 {"q": "¿Cuánto cuesta el estacionamiento del tecnológico?", "answerable": false}
 {"q": "Dame una receta de enchiladas", "answerable": false}

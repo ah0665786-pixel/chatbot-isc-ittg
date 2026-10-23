@@ -49,3 +49,38 @@ def test_preguntas_de_requisitos_usan_la_expansion_de_requisitos(q):
     expanded = expand_query(q)
     assert "requisitos para la titulación integral" in expanded
     assert "tipos de proyectos" not in expanded  # solo una expansión por tema
+
+
+@pytest.mark.parametrize("q", [
+    "¿Qué pasa si repruebo una materia?",          # "repruebo" no empieza con "reprob"
+    "¿Tengo que volver a meter la materia reprobada el siguiente semestre?",
+    "Reprobé una materia en repetición, ¿qué sigue?",
+    "¿Qué pasa si repruebo el curso especial?",
+    "Si repito una asignatura, ¿cuenta lo que ya había pasado?",
+])
+def test_reprobar_materias_usa_la_expansion_de_repeticion(q):
+    assert "Curso de repetición y curso especial" in expand_query(q)
+
+
+def test_repetir_la_residencia_no_es_repeticion_de_materias():
+    assert "Curso de repetición" not in expand_query("¿Puedo repetir la residencia si la repruebo?")
+
+
+def test_definicion_de_convalidacion():
+    assert "definición y caracterización" in expand_query("¿Qué es la convalidación de estudios?")
+    # Las demás preguntas de convalidación ya salían bien sin expansión
+    assert expand_query("¿Hasta qué semestre puedo pedir la convalidación?") == \
+        "¿Hasta qué semestre puedo pedir la convalidación?"
+
+
+@pytest.mark.parametrize("q,expande", [
+    ("¿Cuántos créditos de actividades complementarias necesito?", True),
+    ("¿Hasta qué semestre tengo para cubrir las actividades complementarias?", True),
+    ("¿Cuántas horas equivale un crédito de actividades complementarias?", True),
+    # Con estas la expansión las empeoraba (medido): se dejan tal cual
+    ("¿Qué son las actividades complementarias?", False),
+    ("¿Cómo se acredita una actividad complementaria?", False),
+    ("¿El inglés cuenta como actividad complementaria?", False),
+])
+def test_actividades_complementarias_solo_creditos_horas_y_plazos(q, expande):
+    assert ("Políticas de operación de las actividades complementarias" in expand_query(q)) is expande
