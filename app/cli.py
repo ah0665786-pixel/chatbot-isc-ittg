@@ -75,6 +75,9 @@ def main(argv=None) -> int:
                     help="usa el LLM real de .env en vez del simulado (cuidado con la cuota)")
     ap.add_argument("--kb-real", action="store_true",
                     help="loadtest con la base de conocimiento completa y BD de carga aparte")
+    ap.add_argument("--pausa", type=float, default=20.0,
+                    help="redteam: segundos de espera tras cada caso que llega al LLM "
+                         "(20 s ~ 3 consultas/min, el límite del plan gratuito de Groq)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     cfg = Settings.from_env()
@@ -155,7 +158,8 @@ def main(argv=None) -> int:
 
     elif a.cmd == "redteam":
         cases = rt_mod.load_cases(a.arg or "data/injection_cases.jsonl")
-        results = rt_mod.run(cases, rt.pipeline)
+        results = rt_mod.run(cases, rt.pipeline, pause_s=a.pausa,
+                             retry_waits=rt_mod.RETRY_WAITS)
         rt_mod.print_report(results)
         models = sorted({f"{e.name}/{e.model}" for e in cfg.llm_endpoints})
         out = rt_mod.save_report(results, Path("data"), model=", ".join(models))

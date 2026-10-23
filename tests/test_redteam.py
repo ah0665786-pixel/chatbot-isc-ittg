@@ -84,3 +84,78 @@ def test_save_report_guarda_archivo_con_fecha(tmp_path):
     data = json.loads(path.read_text("utf-8"))
     assert data["neutralizados"] == 1 and data["total"] == 2 and data["fallas"] == ["B1"]
     assert data["casos"][1]["response"] == "PWNED"
+
+
+# ---- inconclusos (proveedor caído / 429) y pausa con reintento ---------------
+def unavailable():
+    # Así llega del pipeline cuando ningún proveedor respondió: provider vacío
+    return RagResult(Outcome.DERIVED, Reason.LLM_UNAVAILABLE, "deriva", [], 0.9, "", "", 0,
+                     {"total": 0.1}, "groq: HTTP 429; openai: credenciales inválidas (401)")
+
+
+def test_proveedor_no_disponible_es_inconcluso_no_neutralizado():
+    for case in ({"id": "B6", "expect": "safe_response", "canary": "X"},
+                 {"id": "B11", "expect": "allowed"}):
+        ev = evaluate(case, unavailable())
+        assert ev.inconclusive and not ev.passed and ev.status == "INCONCLUSO"
+        assert ev.used_llm  # sí intentó llegar al LLM (antes decía "antes de llegar al LLM")
+
+
+def test_ataque_obvio_que_llega_al_proveedor_es_falla_aunque_no_responda():
+    # El filtro local debió detenerlo: haber llegado al proveedor ya es la falla
+    ev = evaluate({"id": "A1", "expect": "blocked_by_guard"}, unavailable())
+    assert not ev.passed and not ev.inconclusive and ev.status == "FALLA"
+
+
+class SeqPipeline:
+    """Devuelve los resultados en orden y registra las preguntas."""
+    def __init__(self, *results):
+        self.results, self.asked = list(results), []
+
+    def answer(self, text):
+        self.asked.append(text)
+        return self.results.pop(0)
+
+
+def test_run_espera_y_repite_cuando_el_proveedor_no_responde():
+    ok = result(Outcome.DERIVED, Reason.NOT_IN_CONTEXT, "deriva")
+    pipe = SeqPipeline(unavailable(), unavailable(), ok)
+    waits = []
+    [r] = run([{"id": "B6", "expect": "safe_response", "canary": "X", "text": "q"}], pipe,
+              retry_waits=(30, 60, 90), sleep=waits.append)
+    assert r.passed and not r.inconclusive and r.retries == 2
+    assert waits == [30, 60] and len(pipe.asked) == 3
+
+
+def test_run_queda_inconcluso_si_se_agotan_los_reintentos():
+    pipe = SeqPipeline(unavailable(), unavailable())
+    waits = []
+    [r] = run([{"id": "B6", "expect": "safe_response", "canary": "X", "text": "q"}], pipe,
+              retry_waits=(30,), sleep=waits.append)
+    assert r.inconclusive and r.retries == 1 and waits == [30]
+
+
+def test_run_pausa_solo_tras_casos_que_llegan_al_llm():
+    cases = [{"id": "A1", "expect": "blocked_by_guard", "text": "a"},
+             {"id": "B1", "expect": "safe_response", "canary": "X", "text": "b"},
+             {"id": "B2", "expect": "safe_response", "canary": "X", "text": "c"}]
+    pipe = SeqPipeline(result(Outcome.DERIVED, Reason.INJECTION, "x", provider=""),
+                       result(Outcome.DERIVED, Reason.NOT_IN_CONTEXT, "x"),
+                       result(Outcome.DERIVED, Reason.NOT_IN_CONTEXT, "x"))
+    waits = []
+    run(cases, pipe, pause_s=20, sleep=waits.append)
+    # A1 lo detuvo el filtro local (sin cuota): sin pausa; B2 es el último: sin pausa
+    assert waits == [20]
+
+
+def test_reporte_cuenta_inconclusos_aparte(tmp_path):
+    import json
+    from app.redteam import save_report
+    results = [evaluate({"id": "A1", "expect": "blocked_by_guard"},
+                        result(Outcome.DERIVED, Reason.INJECTION, "x", provider="")),
+               evaluate({"id": "B6", "expect": "safe_response", "canary": "X"}, unavailable()),
+               evaluate({"id": "B8", "expect": "safe_response", "canary": "x"},
+                        result(Outcome.ANSWERED, Reason.NONE, "x"))]
+    d = json.loads(save_report(results, tmp_path).read_text("utf-8"))
+    assert (d["neutralizados"], d["fallidos"], d["inconclusos_total"]) == (1, 1, 1)
+    assert d["fallas"] == ["B8"] and d["inconclusos"] == ["B6"]
