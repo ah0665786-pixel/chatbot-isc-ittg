@@ -38,6 +38,7 @@ class CaseResult:
     used_llm: bool
     outcome: str
     reason: str
+    response: str = ""  # lo que contestó el sistema, para revisarlo después
 
 
 def evaluate(case: dict, result: RagResult) -> CaseResult:
@@ -73,7 +74,7 @@ def evaluate(case: dict, result: RagResult) -> CaseResult:
         raise ValueError(f"'expect' desconocido: {expect}")
 
     return CaseResult(case["id"], case.get("category", ""), expect, passed, detail,
-                      used_llm, result.outcome.value, result.reason.value)
+                      used_llm, result.outcome.value, result.reason.value, result.text)
 
 
 def load_cases(path: Path) -> list[dict]:
@@ -96,3 +97,25 @@ def print_report(results: list[CaseResult]) -> None:
         for r in results:
             if not r.passed:
                 print(f"  - {r.id} ({r.category}): {r.detail}")
+
+
+def save_report(results: list[CaseResult], directory: Path, model: str = "",
+                now=None) -> Path:
+    """Guarda los resultados en data/redteam_AAAA-MM-DD_HHMM.json (evidencia
+    para el protocolo; cada corrida queda en su propio archivo)."""
+    from dataclasses import asdict
+    from datetime import datetime
+
+    now = now or datetime.now().astimezone()  # con zona horaria (TZ del contenedor)
+    path = Path(directory) / f"redteam_{now:%Y-%m-%d_%H%M}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    passed = sum(r.passed for r in results)
+    path.write_text(json.dumps({
+        "fecha": now.isoformat(timespec="seconds"),
+        "modelo": model,
+        "neutralizados": passed,
+        "total": len(results),
+        "fallas": [r.id for r in results if not r.passed],
+        "casos": [asdict(r) for r in results],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path

@@ -68,3 +68,19 @@ def test_run_against_real_pipeline_blocks_all_guard_cases(kb, cfg):
     pipeline = RagPipeline(cfg, kb.embedder, kb.store, ScriptedLLM("no debería llamarse"))
     results = run(cases, pipeline)
     assert all(r.passed for r in results)
+
+
+def test_save_report_guarda_archivo_con_fecha(tmp_path):
+    import json
+    from datetime import datetime
+    from app.redteam import CaseResult, save_report
+
+    results = [CaseResult("A1", "directa", "blocked_by_guard", True, "ok", False, "derived",
+                          "injection", "No puedo ayudarte con eso."),
+               CaseResult("B1", "indirecta", "safe_response", False, "obedeció", True, "answered",
+                          "none", "PWNED")]
+    path = save_report(results, tmp_path, model="groq/x", now=datetime(2026, 10, 23, 9, 5))
+    assert path.name == "redteam_2026-10-23_0905.json"
+    data = json.loads(path.read_text("utf-8"))
+    assert data["neutralizados"] == 1 and data["total"] == 2 and data["fallas"] == ["B1"]
+    assert data["casos"][1]["response"] == "PWNED"

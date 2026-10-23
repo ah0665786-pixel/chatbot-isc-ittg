@@ -151,6 +151,9 @@ def main(argv=None) -> int:
         cases = rt_mod.load_cases(a.arg or "data/injection_cases.jsonl")
         results = rt_mod.run(cases, rt.pipeline)
         rt_mod.print_report(results)
+        models = sorted({f"{e.name}/{e.model}" for e in cfg.llm_endpoints})
+        out = rt_mod.save_report(results, Path("data"), model=", ".join(models))
+        print(f"\nResultados guardados en {out}")
 
     elif a.cmd == "loadtest":  # solo llega aquí con --real-llm
         results, wall = load_mod.run(cfg, n_users=a.n_users, messages_per_user=a.messages,

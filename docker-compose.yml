@@ -16,6 +16,7 @@ x-app: &app
     # bot y panel usan la MISMA base, el servicio db de este compose.
     DATABASE_URL: postgresql://${POSTGRES_USER:-chatbot}:${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}@db:5432/${POSTGRES_DB:-chatbot_isc}
     KB_DIR: /app/data/kb
+    TZ: America/Mexico_City  # fechas de reportes y logs en hora de Tuxtla
     DOCS_DIR: /app/data/docs
   volumes:
     # Documentos e índice FAISS compartidos: el panel indexa y el bot recarga
@@ -53,6 +54,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-chatbot}:${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}@db:5432/${POSTGRES_DB:-chatbot_isc}
       KB_DIR: /app/data/kb
+      TZ: America/Mexico_City
       DOCS_DIR: /app/data/docs
       ADMIN_HOST: 0.0.0.0  # dentro del contenedor; el puerto del host sigue limitado abajo
       ADMIN_PORT: "8000"
