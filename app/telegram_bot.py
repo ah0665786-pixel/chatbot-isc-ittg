@@ -47,13 +47,17 @@ async def _typing_loop(chat_id: int, bot) -> None:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(WELCOME)
+    await update.effective_message.reply_text(WELCOME)
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     svc: ConversationService = context.application.bot_data["svc"]
     user = update.effective_user
-    text = (update.message.text or "").strip()
+    # effective_message y no update.message: si el estudiante EDITA su pregunta,
+    # Telegram manda un edited_message y update.message llega en None (RF-I-01,
+    # HU-02 CA-01). Se responde la versión corregida, que es la que quiere saber.
+    message = update.effective_message
+    text = (message.text or "").strip()
     if not text:
         return
 
@@ -65,7 +69,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             svc.handle_message, str(user.id), user.first_name or user.username or "", text)
     except Exception:
         log.exception("fallo procesando mensaje de %s", user.id)
-        await update.message.reply_text(
+        await message.reply_text(
             "Tuve un problema inesperado procesando tu consulta. Intenta de nuevo en un "
             "momento; si persiste, acude a la Coordinación de ISC.")
         return
@@ -78,13 +82,13 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                for n in range(1, 6)]
         keyboard = InlineKeyboardMarkup([row])
     try:
-        await update.message.reply_text(markdown_to_telegram_html(result.text),
+        await message.reply_text(markdown_to_telegram_html(result.text),
                                         parse_mode=ParseMode.HTML, reply_markup=keyboard)
     except BadRequest:
         # Telegram rechazó el HTML (etiquetas mal formadas): mejor texto plano
         # que dejar al estudiante sin respuesta.
         log.warning("Telegram rechazó el HTML; se envía como texto plano")
-        await update.message.reply_text(strip_markdown(result.text), reply_markup=keyboard)
+        await message.reply_text(strip_markdown(result.text), reply_markup=keyboard)
 
 
 async def on_rating(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -215,3 +215,67 @@ def test_prompt_prohibe_transcribir_el_contexto(kb, cfg):
     llm = ScriptedLLM(GOOD)
     pipe(kb, cfg, llm).answer("¿Cómo solicito la baja temporal?")
     assert "Tampoco transcribas" in llm.calls[0][0]["content"]
+
+
+# ---- preguntas de seguimiento (HU-04 CA-02) ---------------------------------
+def _hist(*questions):
+    out = []
+    for q in questions:
+        out += [{"role": "user", "content": q}, {"role": "assistant", "content": "respuesta"}]
+    return out
+
+
+def _searched(p, monkeypatch):
+    seen = []
+    real = p.embedder.embed_query
+    monkeypatch.setattr(p.embedder, "embed_query", lambda t: seen.append(t) or real(t))
+    return seen
+
+
+@pytest.mark.parametrize("q", [
+    "¿Y cuántas horas son?",                      # caso medido: 0 de 5 útiles sin historial
+    "¿Y si lo repruebo?",
+    "¿En cuánto tiempo lo tengo que terminar?",   # sin conector, pero no nombra tema
+    "¿Cuántos créditos necesito?",
+    "¿Dónde se entrega eso?",
+])
+def test_seguimiento_busca_con_la_pregunta_anterior(kb, cfg, monkeypatch, q):
+    llm = ScriptedLLM(GOOD)
+    p = pipe(kb, cfg, llm)
+    seen = _searched(p, monkeypatch)
+    p.answer(q, _hist("¿Cómo solicito la baja temporal?"))
+    assert seen[0].startswith("¿Cómo solicito la baja temporal?\n" + q)
+    assert llm.calls[0][-1]["content"].endswith(f"PREGUNTA: {q}")  # el LLM ve la original
+
+
+@pytest.mark.parametrize("q", [
+    "¿Cuántas horas dura la residencia profesional?",
+    "¿Qué es el curso especial?",
+    "¿Cuántas veces puedo cursar la misma materia?",   # "misma" no es referencia
+    "¿Qué requisitos necesito para solicitar una baja temporal?",
+    "¿Cuál es la capital de Francia?",
+])
+def test_pregunta_independiente_no_mezcla_el_historial(kb, cfg, monkeypatch, q):
+    p = pipe(kb, cfg, ScriptedLLM(GOOD))
+    seen = _searched(p, monkeypatch)
+    p.retrieve(q, history=_hist("¿Cómo solicito la baja temporal?"))
+    assert seen[0].startswith(q)  # sin la pregunta anterior antepuesta
+
+
+def test_seguimiento_encadenado_conserva_el_tema(kb, cfg, monkeypatch):
+    # 3.ª pregunta seguida: el tema está en la 1.ª, no en la inmediata anterior
+    p = pipe(kb, cfg, ScriptedLLM(GOOD))
+    seen = _searched(p, monkeypatch)
+    p.retrieve("¿Y cuándo lo puedo empezar?",
+               history=_hist("¿Qué opciones de titulación existen?",
+                             "¿Cuántas horas dura el servicio social?", "¿Y cuántos créditos vale?"))
+    assert seen[0].startswith("¿Cuántas horas dura el servicio social?\n"
+                              "¿Y cuántos créditos vale?\n¿Y cuándo lo puedo empezar?")
+    assert "titulación" not in seen[0]
+
+
+def test_seguimiento_sin_historial_busca_solo_la_pregunta(kb, cfg, monkeypatch):
+    p = pipe(kb, cfg, ScriptedLLM(GOOD))
+    seen = _searched(p, monkeypatch)
+    p.retrieve("¿Y cuántas horas son?", history=[])
+    assert seen[0] == "¿Y cuántas horas son?"

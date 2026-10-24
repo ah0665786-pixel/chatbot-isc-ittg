@@ -83,3 +83,62 @@ def expand_query(question: str) -> str:
             extra.append(text)
             done.add(topic.pattern)
     return "\n".join([question, *extra]) if extra else question
+
+
+# ---- preguntas de seguimiento (HU-04 CA-02) ---------------------------------
+# "¿Y cuántas horas son?" después de "¿Cuántas horas dura el servicio social?"
+# no dice de qué habla: buscada sola recuperaba 0 de 5 fragmentos útiles y aun
+# así pasaba el umbral (0.858), porque el modelo da puntajes muy juntos. Para
+# esas preguntas la búsqueda antepone la última pregunta del estudiante (sin
+# llamar al LLM). El LLM y la validación siguen viendo la pregunta original.
+#
+# Es seguimiento si (1) empieza con un conector ("y", "entonces", "también"...),
+# (2) señala algo dicho antes ("eso", "ahí", "dicho trámite") o (3) no nombra
+# ningún tema: todas sus palabras son genéricas ("¿En cuánto tiempo lo tengo
+# que terminar?"). "este/esta" no cuentan: "este semestre" o "está" son comunes
+# en preguntas independientes. Tampoco "mismo/misma" ("la misma materia").
+_CONECTOR = re.compile(r"^(y|e|o|pero|entonces|tambien|ademas|igual|o sea)\b")
+_ANAFORA = re.compile(r"\b(eso|esto|ese|esa|esos|esas|ello|ahi|alli|dicho|dicha|dichos|dichas"
+                      r"|anterior|mencionado|mencionada)\b")
+# Palabras que no dicen de qué trámite se habla. Solo se cuentan las de 4+ letras.
+_GENERICAS = set("""cual cuales cuando cuanto cuanta cuantos cuantas donde como quien quienes
+porque para pero sino desde hasta entre sobre tambien ademas entonces igual
+tengo tiene tienen tienes puedo puede pueden puedes debo debe deben necesito necesita
+necesitan hacer hago hace hacen hacerlo pedir piden pide solicitar solicito sacar entregar
+empezar empiezo iniciar inicio terminar termino acabar dura duran durar cuesta cuestan vale
+valen cuenta cuentan sirve pasa pasaria sigue seria sera son esta estan hay haber
+horas hora tiempo dias meses semanas creditos credito requisitos requisito documentos
+documento pasos paso plazo plazos fecha fechas costo precio porcentaje minimo maximo veces
+semestre semestres lugar lugares opciones opcion tipos tipo forma formas manera maneras
+caso casos repruebo reprobar repito repetir acredito acreditar mismo misma algo nada mas
+menos tanto tantas tantos todo todos toda todas cada otro otra otros otras""".split())
+
+
+_MAX_PREVIAS = 3  # tope por si toda la conversación son seguimientos
+
+
+def is_follow_up(question: str) -> bool:
+    """¿La pregunta depende de lo que se habló antes para saber de qué trata?"""
+    norm = " ".join(re.findall(r"[a-z0-9]+", guards.normalize(question)))
+    if not norm:
+        return False
+    if _CONECTOR.search(norm) or _ANAFORA.search(norm):
+        return True
+    return not any(len(w) >= 4 and w not in _GENERICAS for w in norm.split())
+
+
+def search_query(question: str, history=()) -> str:
+    """Consulta para el buscador: la pregunta más la expansión por tema. Si es
+    de seguimiento, antepone las preguntas previas del estudiante hasta la
+    última que sí nombraba su tema (en "¿Y cuántos créditos vale?" -> "¿Y
+    cuándo lo empiezo?", el tema sigue siendo el de la pregunta de antes)."""
+    if is_follow_up(question):
+        previous: list[str] = []
+        for m in reversed(history or ()):
+            if m.get("role") != "user" or not m.get("content"):
+                continue
+            previous.insert(0, m["content"])
+            if not is_follow_up(m["content"]) or len(previous) == _MAX_PREVIAS:
+                break
+        question = "\n".join([*previous, question])
+    return expand_query(question)

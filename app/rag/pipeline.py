@@ -13,7 +13,7 @@ from app.ports import Embedder, LLMProvider
 from app.adapters.vectorstore_faiss import FaissStore
 from app.rag import guards
 from app.rag.messages import derivation_message
-from app.rag.query_expansion import expand_query
+from app.rag.query_expansion import search_query
 
 log = logging.getLogger("rag")
 
@@ -90,11 +90,13 @@ class RagPipeline:
         self._watcher = watcher
 
     # ---- recuperación -------------------------------------------------------
-    def retrieve(self, question: str, k: int | None = None) -> list[Hit]:
+    def retrieve(self, question: str, k: int | None = None,
+                 history: Sequence[dict] | None = None) -> list[Hit]:
         """Busca con la consulta expandida (solo para la búsqueda; el LLM recibe
         la pregunta original). La usan answer() y la calibración, para que
-        midan exactamente lo mismo."""
-        query = expand_query(question)
+        midan exactamente lo mismo. Con historial, una pregunta de seguimiento
+        se busca junto con la anterior del estudiante (HU-04 CA-02)."""
+        query = search_query(question, history)
         if query != question:
             log.info("consulta expandida para la búsqueda: %r", query)
         return self.store.search(self.embedder.embed_query(query), k or self.cfg.top_k)
@@ -148,7 +150,7 @@ class RagPipeline:
             return derive(Reason.OUT_OF_SCOPE, category=cat, detail=cat)
 
         t = time.perf_counter()
-        hits_all = self.retrieve(q)
+        hits_all = self.retrieve(q, history=history)
         timings["retrieval"] = time.perf_counter() - t
         max_score = hits_all[0].score if hits_all else 0.0
         hits = [h for h in hits_all if h.score >= self.cfg.sim_threshold]
