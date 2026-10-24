@@ -74,3 +74,84 @@ def test_metric_rows_trae_la_pregunta_enlazada():
     assert row.pregunta == "¿Cuántas horas dura el servicio social?"
     assert (row.resultado, row.motivo_derivacion, row.calificacion) == \
         ("derived", "not_in_context", 4)
+
+
+# ---- arranque con otro servicio conectado (RNF-FI-01) ----------------------
+# Caso real (2026-10-24): el panel leyó métricas y su sesión quedó "idle in
+# transaction"; al reconstruir el bot, su arranque esperó para siempre el
+# candado del ALTER TABLE del esquema.
+
+def _start_in_thread(timeout: float = 15.0):
+    """Construye un repositorio en otro hilo; regresa (terminó, error)."""
+    import threading
+    from app.adapters.db_postgres import PostgresRepository
+    outcome: dict = {}
+
+    def run():
+        try:
+            PostgresRepository(DSN).close()
+        except Exception as e:  # noqa: BLE001 - se revisa en la prueba
+            outcome["error"] = e
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout)
+    return not t.is_alive(), outcome.get("error")
+
+
+def test_lecturas_no_dejan_transaccion_abierta():
+    from psycopg2.extensions import TRANSACTION_STATUS_IDLE
+    repo = _fresh_repo()
+    uid = repo.get_or_create_user("12345", "Isagi")
+    cid = repo.get_or_create_conversation(uid)
+    try:
+        for read in (repo.metrics_summary, repo.metric_rows, lambda: repo.get_history(cid)):
+            read()
+            assert repo._conn.info.transaction_status == TRANSACTION_STATUS_IDLE,                 "la lectura dejó la sesión 'idle in transaction'"
+    finally:
+        repo.close()
+
+
+def test_arranque_no_espera_a_la_lectura_de_otro_servicio():
+    panel = _fresh_repo()
+    try:
+        panel.metric_rows()       # descarga del CSV
+        panel.metrics_summary()   # el panel al abrirse; con el código anterior
+                                  # esta lectura dejaba la transacción abierta
+        finished, error = _start_in_thread()
+        assert finished, "el segundo repositorio se quedó esperando el candado (más de 15 s)"
+        assert error is None
+    finally:
+        panel.close()
+
+
+def test_migracion_agrega_la_columna_si_falta():
+    from app.adapters.db_postgres import PostgresRepository
+    repo = _fresh_repo()
+    with repo._conn, repo._conn.cursor() as c:
+        c.execute("ALTER TABLE metricas DROP COLUMN id_mensaje_usuario")
+    repo.close()
+    repo = PostgresRepository(DSN)
+    with repo._conn, repo._conn.cursor() as c:
+        c.execute("SELECT 1 FROM information_schema.columns WHERE table_name='metricas' "
+                  "AND column_name='id_mensaje_usuario'")
+        assert c.fetchone() is not None
+    repo.close()
+
+
+def test_bloqueo_al_arrancar_falla_con_error_claro(monkeypatch):
+    """Si otra sesión retiene una tabla, el arranque falla con lock timeout en
+    vez de quedarse colgado."""
+    import app.adapters.db_postgres as dbp
+    monkeypatch.setattr(dbp, "SCHEMA_LOCK_TIMEOUT", "1s")
+    _fresh_repo().close()
+    holder = psycopg2.connect(DSN)
+    try:
+        with holder.cursor() as c:
+            c.execute("LOCK TABLE metricas IN ACCESS EXCLUSIVE MODE")
+        finished, error = _start_in_thread()
+        assert finished, "el arranque se quedó colgado en vez de fallar"
+        assert isinstance(error, psycopg2.errors.LockNotAvailable)
+    finally:
+        holder.rollback()
+        holder.close()

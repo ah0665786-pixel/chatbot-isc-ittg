@@ -88,12 +88,22 @@ CREATE TABLE IF NOT EXISTS documentos (
     fecha_indexacion TEXT,
     activo           INTEGER NOT NULL DEFAULT 1
 );
-
--- Columnas agregadas después de la versión inicial (las bases existentes
--- las reciben aquí al arrancar; en SQLite lo hace SqliteRepository._migrate).
-ALTER TABLE metricas ADD COLUMN IF NOT EXISTS id_mensaje_usuario TEXT
-    REFERENCES mensajes(id_mensaje) ON DELETE SET NULL;
 """
+
+# Columnas agregadas después de la versión inicial (las bases existentes las
+# reciben al arrancar; en SQLite lo hace SqliteRepository._migrate). Cada ALTER
+# se ejecuta solo si la columna falta: "ADD COLUMN IF NOT EXISTS" pide un
+# candado ACCESS EXCLUSIVE aunque la columna ya exista, y esperaría a cualquier
+# transacción abierta sobre la tabla (así se quedó colgado el arranque del bot).
+MIGRATIONS = [
+    ("metricas", QUESTION_COLUMN,
+     f"ALTER TABLE metricas ADD COLUMN {QUESTION_COLUMN} TEXT "
+     "REFERENCES mensajes(id_mensaje) ON DELETE SET NULL"),
+]
+
+# Si al crear el esquema otra sesión tiene tomada una tabla, el arranque falla
+# con "lock timeout" en el log en vez de quedarse esperando para siempre.
+SCHEMA_LOCK_TIMEOUT = "10s"
 
 
 def _now(now: datetime | None) -> datetime:
@@ -125,12 +135,24 @@ class PostgresRepository:
             # si bot y panel arrancan a la vez contra una base nueva, uno falla
             # con UniqueViolation en pg_type. El candado consultivo (se libera
             # al terminar la transacción) hace que creen el esquema por turnos.
+            cur.execute("SET LOCAL lock_timeout = %s", (SCHEMA_LOCK_TIMEOUT,))
             cur.execute("SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_ID,))
             cur.execute(SCHEMA)
+            for table, column, ddl in MIGRATIONS:
+                cur.execute(
+                    "SELECT 1 FROM information_schema.columns WHERE table_schema = "
+                    "current_schema() AND table_name = %s AND column_name = %s",
+                    (table, column))
+                if cur.fetchone() is None:
+                    cur.execute(ddl)
 
     def close(self) -> None:
         self._conn.close()
 
+    # Toda consulta, también las de solo lectura, pasa por _tx: con autocommit
+    # apagado un SELECT abre una transacción que, si no se cierra, deja la
+    # sesión "idle in transaction" con candados sobre las tablas y bloquea el
+    # arranque del otro servicio (el panel casi nunca escribe).
     @contextmanager
     def _tx(self) -> Iterator["psycopg2.extensions.cursor"]:
         with self._lock, self._conn, self._conn.cursor() as cur:
@@ -197,7 +219,7 @@ class PostgresRepository:
         return mid
 
     def get_history(self, conversation_id: str, limit_turns: int = 6) -> list[dict]:
-        with self._conn.cursor() as c:
+        with self._tx() as c:
             c.execute(
                 "SELECT rol, contenido FROM mensajes WHERE id_conversacion=%s "
                 "ORDER BY timestamp ASC", (conversation_id,))
@@ -256,7 +278,7 @@ class PostgresRepository:
     def metric_rows(self, start: str | None = None, end: str | None = None) -> list[MetricRow]:
         """Consultas para exportar a CSV. start inclusivo, end exclusivo (ISO UTC)."""
         sql, params = export_query(start, end, "%s")
-        with self._lock, self._conn, self._conn.cursor() as c:
+        with self._tx() as c:
             c.execute(sql, params)
             return [MetricRow(**dict(r)) for r in c.fetchall()]
 
@@ -268,7 +290,7 @@ class PostgresRepository:
         if date_to:
             where.append("timestamp <= %s"); params.append(date_to)
         clause = f"WHERE {' AND '.join(where)}" if where else ""
-        with self._conn.cursor() as c:
+        with self._tx() as c:
             c.execute(f"SELECT resultado, motivo_derivacion, "
                      f"tiempo_respuesta_seg FROM metricas {clause}", params)
             rows = c.fetchall()
