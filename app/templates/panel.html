@@ -18,7 +18,7 @@
   .card .n { font-size: 1.5rem; font-weight: 700; }
   .card .label { font-size: .8rem; color: #52606d; }
   form.upload { margin-top: .75rem; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
-  input[type=text] { padding: .4rem .5rem; border: 1px solid #cbd2d9; border-radius: 5px; }
+  input[type=text], input[type=date] { padding: .4rem .5rem; border: 1px solid #cbd2d9; border-radius: 5px; }
   button { padding: .45rem 1rem; border: none; border-radius: 5px; background: #2563eb; color: white; cursor: pointer; }
   button:hover { background: #1d4ed8; }
   .hint { color: #7b8794; font-size: .85rem; }
@@ -48,6 +48,14 @@
   {% endfor %}
 </table>
 {% endif %}
+
+<form class="upload" method="get" action="/metricas/exportar.csv">
+  <label>Desde <input type="date" name="desde"></label>
+  <label>Hasta <input type="date" name="hasta"></label>
+  <button type="submit">Descargar CSV</button>
+  <span class="hint">Una fila por consulta: fecha, pregunta, respondida o derivada, motivo,
+    tiempo de respuesta y calificación. Sin fechas = todas las consultas.</span>
+</form>
 
 <h2>Base de conocimiento</h2>
 <p class="hint">Documentos indexados: {{ documents|length }}</p>

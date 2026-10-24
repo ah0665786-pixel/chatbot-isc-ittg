@@ -58,3 +58,19 @@ def test_record_metric_and_summary():
     summary = repo.metrics_summary()
     assert summary.total == 1
     assert summary.answered == 1
+
+
+def test_metric_rows_trae_la_pregunta_enlazada():
+    repo = _fresh_repo()
+    uid = repo.get_or_create_user("12345", "Isagi")
+    cid = repo.get_or_create_conversation(uid)
+    qid = repo.add_message(cid, "usuario", "¿Cuántas horas dura el servicio social?")
+    aid = repo.add_message(cid, "asistente", "Entre 480 y 500 horas.")
+    result = RagResult(Outcome.DERIVED, Reason.NOT_IN_CONTEXT, "deriva", [], 0.5, "", "", 1,
+                       {"total": 0.4}, "detalle", [])
+    mid = repo.record_metric(cid, aid, result, question_id=qid)
+    repo.rate_response(mid, 4)
+    [row] = repo.metric_rows()
+    assert row.pregunta == "¿Cuántas horas dura el servicio social?"
+    assert (row.resultado, row.motivo_derivacion, row.calificacion) == \
+        ("derived", "not_in_context", 4)

@@ -40,7 +40,7 @@ class ConversationService:
         user_id = self.repo.get_or_create_user(external_id, display_name)
         conv_id = self.repo.get_or_create_conversation(user_id, canal)
         history = self.repo.get_history(conv_id, self.cfg.history_turns)
-        self.repo.add_message(conv_id, "usuario", text)
+        question_id = self.repo.add_message(conv_id, "usuario", text)
 
         if len(text) > self.cfg.max_question_chars:  # HU-01 CA-04
             result = RagResult(Outcome.DERIVED, Reason.TOO_LONG,
@@ -52,7 +52,8 @@ class ConversationService:
         message_id = self.repo.add_message(conv_id, "asistente", result.text)
         if should_notify(result):
             notify_coordinadora(self.cfg, external_id, display_name, text, result)
-        metric_id = self.repo.record_metric(conv_id, message_id, result)
+        metric_id = self.repo.record_metric(conv_id, message_id, result,
+                                            question_id=question_id)
         return result, metric_id
 
     def rate(self, metric_id: str, score: int) -> None:

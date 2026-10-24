@@ -12,10 +12,11 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+from datetime import date
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
@@ -74,6 +75,21 @@ def build_app(cfg: Settings, svc: AdminService) -> FastAPI:
                      user: str = Depends(require_auth)):
         m = svc.metrics_summary(desde, hasta)
         return m.__dict__
+
+    @app.get("/metricas/exportar.csv")
+    def exportar_csv(desde: date | None = None, hasta: date | None = None,
+                     user: str = Depends(require_auth)):
+        """Descarga de métricas por consulta (HU-04, HU-13). desde/hasta: AAAA-MM-DD,
+        en hora local y ambos incluidos; vacíos = todas las consultas."""
+        if desde and hasta and desde > hasta:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "La fecha 'desde' es posterior a 'hasta'.")
+        content = svc.export_metrics_csv(desde, hasta)
+        rango = f"{desde or 'inicio'}_a_{hasta or date.today()}"
+        return Response(content.encode("utf-8"), media_type="text/csv; charset=utf-8", headers={
+            "Content-Disposition": f'attachment; filename="metricas_{rango}.csv"',
+            "Cache-Control": "no-store",  # trae preguntas de estudiantes: sin copias en caché
+        })
 
     return app
 

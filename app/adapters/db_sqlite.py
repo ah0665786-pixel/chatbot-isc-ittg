@@ -112,6 +112,52 @@ class MetricsSummary:
     by_reason: dict[str, int]       # HU-08/HU-11: motivos de derivación
 
 
+@dataclass
+class MetricRow:
+    """Una consulta para exportar (HU-04, HU-13)."""
+    fecha: str                       # ISO en UTC, tal como se guardó
+    pregunta: str | None
+    resultado: str                   # 'answered' | 'derived'
+    motivo_derivacion: str | None
+    tiempo_respuesta_seg: float | None
+    calificacion: int | None
+
+
+# Columna agregada después de la versión inicial: enlaza la métrica con el
+# mensaje del ESTUDIANTE (id_mensaje apunta a la respuesta del asistente).
+# Las bases existentes la reciben al arrancar (ver _migrate / SCHEMA de Postgres).
+QUESTION_COLUMN = "id_mensaje_usuario"
+
+
+def export_query(start: str | None, end: str | None, ph: str) -> tuple[str, list]:
+    """Consulta de exportación común a SQLite (ph='?') y PostgreSQL (ph='%s').
+    start inclusivo, end exclusivo (ISO en UTC).
+
+    La pregunta sale del enlace directo id_mensaje_usuario. Las métricas
+    anteriores a esa columna no lo tienen: para ellas se toma el último mensaje
+    del estudiante en la conversación hasta la hora de la respuesta (las horas
+    van al segundo, así que con dos mensajes en el mismo segundo puede
+    emparejar el equivocado; por eso ya no se depende de esto)."""
+    where, params = [], []
+    if start:
+        where.append(f"m.timestamp >= {ph}"); params.append(start)
+    if end:
+        where.append(f"m.timestamp < {ph}"); params.append(end)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    sql = (
+        "SELECT m.timestamp AS fecha, "
+        "COALESCE(q.contenido, ("
+        "  SELECT u.contenido FROM mensajes u, mensajes a "
+        "  WHERE a.id_mensaje = m.id_mensaje AND u.id_conversacion = m.id_conversacion "
+        "    AND u.rol = 'usuario' AND u.timestamp <= a.timestamp "
+        "  ORDER BY u.timestamp DESC LIMIT 1)) AS pregunta, "
+        "m.resultado, m.motivo_derivacion, m.tiempo_respuesta_seg, "
+        "m.calificacion_usuario AS calificacion "
+        f"FROM metricas m LEFT JOIN mensajes q ON q.id_mensaje = m.{QUESTION_COLUMN} "
+        f"{clause} ORDER BY m.timestamp")
+    return sql, params
+
+
 class SqliteRepository:
     """Repositorio de historial y métricas. Una conexión compartida y con
     lock: suficiente para el bot (una petición a la vez por usuario) y para
@@ -128,6 +174,14 @@ class SqliteRepository:
         self._conn.row_factory = sqlite3.Row
         with self._conn:
             self._conn.executescript(SCHEMA)
+            self._migrate()
+
+    def _migrate(self) -> None:
+        """Agrega a bases ya existentes las columnas que llegaron después."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(metricas)")}
+        if QUESTION_COLUMN not in cols:
+            self._conn.execute(f"ALTER TABLE metricas ADD COLUMN {QUESTION_COLUMN} TEXT "
+                               "REFERENCES mensajes(id_mensaje) ON DELETE SET NULL")
 
     def close(self) -> None:
         self._conn.close()
@@ -205,19 +259,22 @@ class SqliteRepository:
 
     # ---- métricas (RF-I-04, HU-04, HU-07, HU-08, HU-11, HU-13) ---------------
     def record_metric(self, conversation_id: str, message_id: str | None,
-                      result: RagResult, now: datetime | None = None) -> str:
+                      result: RagResult, now: datetime | None = None,
+                      question_id: str | None = None) -> str:
+        """message_id = respuesta del asistente; question_id = mensaje del estudiante."""
         mid = _uuid()
         with self._tx() as c:
             c.execute(
                 "INSERT INTO metricas(id_metrica, id_conversacion, id_mensaje, timestamp, "
                 "tiempo_respuesta_seg, fragmentos_recuperados, similitud_maxima, resultado, "
-                "motivo_derivacion, intentos, proveedor_llm, modelo_llm) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (mid, conversation_id, message_id, _iso(_now(now)),
                  result.timings.get("total"), len(result.hits), result.max_score,
                  result.outcome.value,
                  result.reason.value if result.outcome is Outcome.DERIVED else None,
-                 result.attempts, result.provider or None, result.model or None))
+                 result.attempts, result.provider or None, result.model or None,
+                 question_id))
             for i, h in enumerate(result.hits):
                 c.execute(
                     "INSERT INTO metricas_fragmentos(id_metrica, posicion, doc_id, "
@@ -247,6 +304,11 @@ class SqliteRepository:
                      d["indexed_at"]))
 
     # ---- reportes (HU-04, HU-13, HU-15) --------------------------------------
+    def metric_rows(self, start: str | None = None, end: str | None = None) -> list[MetricRow]:
+        """Consultas para exportar a CSV. start inclusivo, end exclusivo (ISO UTC)."""
+        sql, params = export_query(start, end, "?")
+        return [MetricRow(**dict(r)) for r in self._conn.execute(sql, params).fetchall()]
+
     def metrics_summary(self, date_from: str | None = None,
                         date_to: str | None = None) -> MetricsSummary:
         where, params = [], []

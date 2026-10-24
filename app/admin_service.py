@@ -4,8 +4,11 @@ poder probarlo sin levantar un servidor HTTP real — mismo patrón que
 app.service.ConversationService para el bot."""
 from __future__ import annotations
 
+import csv
+import io
 import re
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from pathlib import Path
 
 from app.adapters.db_sqlite import MetricsSummary, SqliteRepository
@@ -15,6 +18,33 @@ from app.rag.loaders import SUPPORTED
 from app.service import sync_kb_to_repo
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB: generoso para un reglamento de 50 páginas
+
+# ---- exportación de métricas a CSV (HU-04, HU-13) ---------------------------
+CSV_HEADER = ["Fecha", "Pregunta", "Resultado", "Motivo de derivación",
+              "Tiempo de respuesta (s)", "Calificación (1-5)"]
+RESULT_LABELS = {"answered": "Respondida", "derived": "Derivada"}
+REASON_LABELS = {  # app.domain.Reason, en palabras de la coordinación
+    "out_of_scope": "Fuera de alcance (datos personales o documentos oficiales)",
+    "injection": "Intento de manipular al asistente",
+    "low_similarity": "Tema no encontrado en los documentos",
+    "not_in_context": "Sin información suficiente en los documentos",
+    "validation_failed": "Respuesta no verificable contra los documentos",
+    "llm_unavailable": "Servicio de IA no disponible",
+    "too_long": "Pregunta demasiado larga",
+}
+# Una celda que empieza con = + - @ (o tab/retorno) Excel la toma como fórmula
+# al abrir el archivo: la pregunta la escribe el estudiante, así que se neutraliza.
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(text: str) -> str:
+    return "'" + text if text.startswith(_FORMULA_START) else text
+
+
+def _utc_bound(day: date, tz: tzinfo) -> str:
+    """Medianoche local de `day`, en el mismo formato ISO-UTC que la base."""
+    local = datetime.combine(day, time.min, tzinfo=tz)
+    return local.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 # Caracteres prohibidos en nombres de archivo de Windows (NTFS). Linux/macOS
 # son más permisivos, pero saneamos siempre así: no sabemos con certeza en
@@ -96,3 +126,28 @@ class AdminService:
     def metrics_summary(self, date_from: str | None = None,
                         date_to: str | None = None) -> MetricsSummary:
         return self.repo.metrics_summary(date_from, date_to)
+
+    def export_metrics_csv(self, desde: date | None = None, hasta: date | None = None,
+                           tz: tzinfo | None = None) -> str:
+        """CSV con una fila por consulta (HU-04, HU-13). desde/hasta son días en
+        hora local, ambos incluidos; la base guarda UTC, así que sin convertir
+        una consulta de las 23:00 caería en el día siguiente. Empieza con BOM
+        para que Excel muestre bien los acentos."""
+        tz = tz or datetime.now().astimezone().tzinfo  # TZ del contenedor (Tuxtla)
+        start = _utc_bound(desde, tz) if desde else None
+        end = _utc_bound(hasta + timedelta(days=1), tz) if hasta else None
+        out = io.StringIO()
+        out.write("﻿")
+        w = csv.writer(out, lineterminator="\r\n")
+        w.writerow(CSV_HEADER)
+        for r in self.repo.metric_rows(start, end):
+            fecha = datetime.fromisoformat(r.fecha).astimezone(tz)
+            w.writerow([
+                fecha.strftime("%Y-%m-%d %H:%M:%S"),
+                _csv_safe(r.pregunta or ""),
+                RESULT_LABELS.get(r.resultado, r.resultado),
+                REASON_LABELS.get(r.motivo_derivacion, r.motivo_derivacion or ""),
+                "" if r.tiempo_respuesta_seg is None else f"{r.tiempo_respuesta_seg:.2f}",
+                "" if r.calificacion is None else r.calificacion,
+            ])
+        return out.getvalue()

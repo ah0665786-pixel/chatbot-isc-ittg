@@ -17,7 +17,8 @@ import psycopg2
 import psycopg2.extras
 
 from app.domain import Outcome, RagResult
-from app.adapters.db_sqlite import MetricsSummary  # mismo dataclass de reporte
+from app.adapters.db_sqlite import (  # mismos dataclasses y consulta de exportación
+    QUESTION_COLUMN, MetricRow, MetricsSummary, export_query)
 
 # Mismo esquema que SQLite (ver db_sqlite.py): TEXT para UUID/fechas por
 # portabilidad. ON CONFLICT y CHECK funcionan igual en PostgreSQL.
@@ -87,6 +88,11 @@ CREATE TABLE IF NOT EXISTS documentos (
     fecha_indexacion TEXT,
     activo           INTEGER NOT NULL DEFAULT 1
 );
+
+-- Columnas agregadas después de la versión inicial (las bases existentes
+-- las reciben aquí al arrancar; en SQLite lo hace SqliteRepository._migrate).
+ALTER TABLE metricas ADD COLUMN IF NOT EXISTS id_mensaje_usuario TEXT
+    REFERENCES mensajes(id_mensaje) ON DELETE SET NULL;
 """
 
 
@@ -202,19 +208,22 @@ class PostgresRepository:
 
     # ---- métricas (RF-I-04, HU-04, HU-07, HU-08, HU-11, HU-13) ---------------
     def record_metric(self, conversation_id: str, message_id: str | None,
-                      result: RagResult, now: datetime | None = None) -> str:
+                      result: RagResult, now: datetime | None = None,
+                      question_id: str | None = None) -> str:
+        """message_id = respuesta del asistente; question_id = mensaje del estudiante."""
         mid = _uuid()
         with self._tx() as c:
             c.execute(
                 "INSERT INTO metricas(id_metrica, id_conversacion, id_mensaje, timestamp, "
                 "tiempo_respuesta_seg, fragmentos_recuperados, similitud_maxima, resultado, "
-                "motivo_derivacion, intentos, proveedor_llm, modelo_llm) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (mid, conversation_id, message_id, _iso(_now(now)),
                  result.timings.get("total"), len(result.hits), result.max_score,
                  result.outcome.value,
                  result.reason.value if result.outcome is Outcome.DERIVED else None,
-                 result.attempts, result.provider or None, result.model or None))
+                 result.attempts, result.provider or None, result.model or None,
+                 question_id))
             for i, h in enumerate(result.hits):
                 c.execute(
                     "INSERT INTO metricas_fragmentos(id_metrica, posicion, doc_id, "
@@ -244,6 +253,13 @@ class PostgresRepository:
                      d["indexed_at"]))
 
     # ---- reportes (HU-04, HU-13, HU-15) --------------------------------------
+    def metric_rows(self, start: str | None = None, end: str | None = None) -> list[MetricRow]:
+        """Consultas para exportar a CSV. start inclusivo, end exclusivo (ISO UTC)."""
+        sql, params = export_query(start, end, "%s")
+        with self._lock, self._conn, self._conn.cursor() as c:
+            c.execute(sql, params)
+            return [MetricRow(**dict(r)) for r in c.fetchall()]
+
     def metrics_summary(self, date_from: str | None = None,
                         date_to: str | None = None) -> MetricsSummary:
         where, params = [], []
