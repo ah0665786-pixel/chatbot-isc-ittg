@@ -197,3 +197,31 @@ def test_fechas_invertidas_o_invalidas(client):
 def test_panel_muestra_el_boton_de_descarga(client):
     html = client.get("/panel", headers=AUTH).text
     assert 'action="/metricas/exportar.csv"' in html and "Descargar CSV" in html
+
+
+# ---- fechas vacías: así las manda el formulario del panel ---------------------
+def two_days(repo):
+    conv = repo.get_or_create_conversation(repo.get_or_create_user("tg-1"))
+    ask(repo, conv, "pregunta del 22", answered(), utc(2026, 10, 22, 18))  # mediodía en Tuxtla
+    ask(repo, conv, "pregunta del 24", answered(), utc(2026, 10, 24, 18))
+
+
+def test_fechas_vacias_bajan_todas_las_consultas(client, repo):
+    # El <input type="date"> vacío llega como "desde=&hasta=", no ausente (antes: 422)
+    two_days(repo)
+    r = client.get("/metricas/exportar.csv?desde=&hasta=", headers=AUTH)
+    assert r.status_code == 200
+    assert r.headers["content-disposition"].startswith('attachment; filename="metricas_inicio_a_')
+    rows = parse(r.content.decode("utf-8"))
+    assert [x[1] for x in rows[1:]] == ["pregunta del 22", "pregunta del 24"]
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("desde=2026-10-23&hasta=", ["pregunta del 24"]),   # solo "desde"
+    ("desde=&hasta=2026-10-22", ["pregunta del 22"]),   # solo "hasta"
+])
+def test_solo_una_de_las_dos_fechas(client, repo, query, expected):
+    two_days(repo)
+    r = client.get(f"/metricas/exportar.csv?{query}", headers=AUTH)
+    assert r.status_code == 200
+    assert [x[1] for x in parse(r.content.decode("utf-8"))[1:]] == expected

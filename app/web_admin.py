@@ -14,6 +14,9 @@ import os
 import secrets
 from datetime import date
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import BeforeValidator
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import RedirectResponse, Response
@@ -26,6 +29,11 @@ from app.rag.knowledge_base import KnowledgeBase
 
 log = logging.getLogger("web_admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+# Un <input type="date"> vacío llega como "desde=" (cadena vacía), no ausente:
+# sin esto FastAPI responde 422. Vacío = sin fecha; una fecha mal escrita sigue
+# dando 422.
+OptionalDate = Annotated[date | None, BeforeValidator(lambda v: v or None)]
 security = HTTPBasic()
 
 
@@ -77,7 +85,7 @@ def build_app(cfg: Settings, svc: AdminService) -> FastAPI:
         return m.__dict__
 
     @app.get("/metricas/exportar.csv")
-    def exportar_csv(desde: date | None = None, hasta: date | None = None,
+    def exportar_csv(desde: OptionalDate = None, hasta: OptionalDate = None,
                      user: str = Depends(require_auth)):
         """Descarga de métricas por consulta (HU-04, HU-13). desde/hasta: AAAA-MM-DD,
         en hora local y ambos incluidos; vacíos = todas las consultas."""
