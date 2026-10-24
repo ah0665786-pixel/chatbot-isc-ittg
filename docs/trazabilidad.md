@@ -1,0 +1,229 @@
+# Matriz de trazabilidad — Chatbot académico ISC (ITTG)
+
+Auditoría del 2026-10-24 sobre el commit `f1345b7` (rama `main`), contra
+`docs/protocolo_requisitos.md` (protocolo 2601-11: RF, RNF, HU de la **Lista B**, Tablas 60-74, y UC).
+
+Leyenda: ✅ cumple y tiene prueba o evidencia · 🟡 parcial, sin prueba o sin medición · ❌ no implementado.
+
+## Resumen
+
+| Grupo | Total | ✅ | 🟡 | ❌ |
+|---|---|---|---|---|
+| RF-I (información) | 5 | 5 | 0 | 0 |
+| RF-C (comportamiento) | 6 | 3 | 2 | 1 |
+| RF-RN (reglas de negocio) | 3 | 2 | 1 | 0 |
+| RNF | 17 | 3 | 13 | 1 |
+| Criterios de aceptación HU-01 a HU-15 | 61 | 41 | 13 | 7 |
+
+Los RNF casi nunca están en ❌ porque la funcionalidad existe; lo que falta es el despliegue
+en AWS o la **medición** que pide el criterio (encuestas, pruebas de integración, respaldos,
+cifrado, monitoreo).
+
+## 1. Huecos
+
+### 1.1 Huecos nuevos (aparecen al auditar contra la lista oficial)
+
+| # | Hueco | Requisito | Verificación |
+|---|---|---|---|
+| N1 | ✅ **Resuelto el 2026-10-24** (ver abajo). **Las preguntas de seguimiento buscaban sin contexto**: el historial va al LLM, pero la búsqueda usa solo la pregunta actual. Tras "¿Cuántas horas dura el servicio social?", la pregunta "¿Y cuántas horas son?" recupera 0 de 5 fragmentos útiles (el 1.º es el cuestionario de hábitos de estudio) y aun así supera el umbral (0.858). **Corrección**: si la pregunta es de seguimiento (empieza con "y", "entonces"..., dice "eso", "ahí"... o no nombra ningún tema), la búsqueda antepone las preguntas anteriores del estudiante hasta la última que sí nombraba el tema (`search_query` en `app/rag/query_expansion.py`), sin llamar al LLM; el LLM sigue viendo la pregunta original. Medido en el contenedor con 7 seguimientos reales: antes 2/7 con el fragmento correcto en el top 5, ahora 7/7 ("¿Y cuántas horas son?": 3 de 5 útiles, 1.º el correcto, 0.887). Ninguna de las 62 preguntas de `data/retrieval_cases.jsonl` se toma como seguimiento; con una pregunta de otro tema en el historial siguen 54/54, y `calibrate` sigue en Hit@5 = 100 %. | HU-04 CA-02 | Medido en el contenedor con el índice real; `test_pipeline.py` (12 pruebas de seguimiento) |
+| N2 | ✅ **Resuelto el 2026-10-24**. **Editar un mensaje hacía fallar al bot**: Telegram reenvía el mensaje editado, `on_message` lo atiende, pero `update.message` es `None` (llega en `edited_message`) y la función lanzaba `AttributeError` antes del `try`: el estudiante no recibía respuesta. **Corrección**: `on_message` y `start` usan `update.effective_message`, así que se responde la versión corregida de la pregunta (se prefirió a ignorar las ediciones con `filters.UpdateType.MESSAGE`, porque el estudiante que corrige una errata espera respuesta). | RF-I-01, HU-02 CA-01 | `test_telegram_bot.py` (3, con `Update.de_json` simulado, sin red): fallaban 2 antes del cambio |
+| N3 | **Telegram no pasa por una API REST**: el protocolo pide que el canal se comunique con el backend por FastAPI. Hoy `app/telegram_bot.py` construye en el mismo proceso el `ConversationService` (BD + motor de IA). La capa de interfaz no tiene lógica de negocio, pero sí acceso directo. | RNF-PO-03 | Lectura de código |
+| N4 | **Sin despliegue 24/7 ni monitoreo**: todo corre en Docker en la máquina de desarrollo; no hay EC2, monitoreo de disponibilidad ni reinicio fuera de `restart: unless-stopped`. | RF-C-05, RNF-FI-01, RNF-PO-01, HU-12 CA-03 | — |
+| N5 | **Sin respaldos**: el volumen `pgdata` no se respalda (el protocolo pide respaldo diario en S3). | RNF-FI-03 | — |
+| N6 | **Sin cifrado en reposo** de la base (el protocolo lo pide vía RDS); se guardan `telegram_id`, nombre de Telegram y el texto libre de las preguntas. | RNF-SE-02 | — |
+| N7 | **El panel no usa HTTPS**: hoy solo escucha en `127.0.0.1`; para exponerlo hace falta un proxy con TLS. | RNF-SE-03 | `docker-compose.yml` |
+| N8 | **Textos de ISC fijos en el código** (11 lugares: instrucciones del LLM, bienvenida, mensajes de derivación, asunto del correo, panel): usar el sistema en otra carrera exige editar código, no solo configuración. | RNF-PO-02 | `grep` en `app/` |
+| N9 | **No existen "tipos de consulta más frecuentes" ni "áreas con más derivación"**: no se clasifica el tema de cada consulta; solo hay motivos de derivación. | HU-13 CA-01, HU-15 CA-03 | — |
+| N10 | **Desempeño histórico incompleto**: no hay agrupación por semana/mes/ciclo, ni aviso de "periodo mínimo" cuando faltan datos, ni "último reporte" cuando no hay datos en el periodo. | HU-15 CA-02, CA-04; HU-09 CA-04 | — |
+| N11 | **Clasificación de intención solo parcial**: la expansión de consulta reconoce titulación, convalidación, repetición y actividades complementarias, pero no inscripción, baja, residencia ni servicio social, y no extrae entidades. | RF-C-01, HU-05 CA-01/CA-02 | `app/rag/query_expansion.py` |
+| N12 | **Criterios de usabilidad sin medir**: 90 % de usuarios nuevos sin instrucciones, 85 % con calificación ≥ 4 (no se calcula en ningún reporte), prueba en Android/iOS/web/escritorio, carga de 50 páginas en ≤ 10 min. | RNF-US-01 a 04 | — |
+| N13 | **El sistema no reporta el p95**: el criterio es "95 % ≤ 30 s, medido en METRICAS". Medido a mano hoy: p95 = 1.69 s en las 10 consultas reales, pero ni el panel ni el CSV lo calculan. | RNF-EF-01 | Consulta SQL sobre `metricas` |
+| N14 | **La numeración de HU en el código es la Lista A**: p. ej. el indicador de escritura dice "HU-01 CA-03" y es HU-02 CA-03 en la Lista B (ver sección 2). | Todas | — |
+
+### 1.2 Huecos de la auditoría anterior que siguen abiertos (ahora con su número oficial)
+
+| Hueco | Requisito oficial |
+|---|---|
+| Accesos no autorizados sin registro (el panel responde 401 sin dejar rastro) | **HU-01 CA-03**, RNF-SE-01 |
+| Aviso por correo a un buzón de pruebas (`sandbox.smtp.mailtrap.io`), sin registro de envíos, síncrono, sin variables en `.env.example` | HU-11 CA-01/CA-03, UC-12 |
+| `CONTACT_EMAIL` vacío: la derivación no da canal de contacto, solo horario | RF-C-04, HU-08 CA-02, HU-11 CA-02 |
+| Tiempo de búsqueda medido pero no registrado | **RNF-EF-03** ("registrado en logs") |
+| Respuestas de más de 4,096 caracteres sin manejo en Telegram | HU-06 CA-03, HU-02 |
+| El tope de espera total (≤ 90 s) puede excederse (presupuesto reiniciado en cada intento) | RNF-FI-02 |
+| Bot de Telegram sin pruebas (indicador de escritura, calificación, errores) | HU-02 CA-03 |
+| "Precisión" = % respondidas, sin verificar que sean correctas con consultas de la coordinadora | RF-RN-03 |
+| Resumen del panel sin filtro de fechas (sí en CSV y API) | HU-09 CA-02, HU-13 CA-02 |
+
+Dos tareas ya propuestas cubren varios de estos: "Registro de accesos, avisos por correo y
+tiempo de búsqueda" y "Respuestas largas, tope de 90 s y pruebas del bot".
+
+## 2. Numeración de HU: código (Lista A) → protocolo (Lista B)
+
+| Cita en el código | Dónde | Corresponde en la Lista B |
+|---|---|---|
+| HU-01 CA-03 (indicador de escritura) | `app/telegram_bot.py` | HU-02 CA-03 |
+| HU-01 CA-04 (mensaje demasiado largo) | `app/domain.py`, `app/service.py` | HU-02 CA-04 |
+| HU-04 (métricas) | repositorios, `app/admin_service.py`, `app/web_admin.py`, `tests/test_metrics_export.py` | HU-09 / HU-13 |
+| HU-07 (en "métricas (RF-I-04, HU-04, HU-07…)") | repositorios | HU-09 CA-01 (registro); HU-07 es la validación |
+| HU-12 en la Lista A (actualizar KB) | — | HU-14 |
+| HU-05, 08, 10, 11, 13, 14, 15 | varios | Coinciden |
+
+## 3. Desviaciones del protocolo (decisiones de implementación)
+
+| Protocolo | Implementado | Justificación / evidencia |
+|---|---|---|
+| Similitud mínima 0.75 | 0.80 | Calibrado: la pregunta válida más baja midió 0.840 y lo claramente ajeno 0.77-0.80 (`data/retrieval_cases.jsonl`) |
+| text-embedding-3-small (API) | `intfloat/multilingual-e5-small` local | Sin costo ni dependencia de una API que pueda retirarse (`README.md`) |
+| GPT-4o mini, temp. 0.3 | Groq `openai/gpt-oss-120b`, temp. 0.3, con respaldo OpenAI y Ollama | `docs/capacidad-y-costos.md` |
+| LlamaIndex | Pipeline propio (`app/rag/`) | — |
+| RDS + EC2 + S3 | PostgreSQL 16 en Docker local | Despliegue en AWS pendiente (N4-N6) |
+| Telegram → API REST FastAPI | Telegram en proceso con `ConversationService` | Pendiente (N3) |
+
+## 4. Requisitos de información (RF-I)
+
+| Código | Requisito | Estado | Implementación | Pruebas / evidencia | Falta |
+|---|---|---|---|---|---|
+| RF-I-01 | Consultas en lenguaje natural por Telegram, sin comandos | ✅ | `app/telegram_bot.py` (`MessageHandler(filters.TEXT & ~filters.COMMAND)`, `update.effective_message`), `app/service.py` | `test_service.py::test_handle_message_persists_and_returns_metric_id` (motor); `test_telegram_bot.py` (adaptador: mensaje nuevo y editado); 10 consultas reales en `metricas` | — (no hay cola: se atiende en paralelo con `asyncio.to_thread`) |
+| RF-I-02 | Historial de la conversación activa para el LLM | ✅ | `get_history` (repositorios), `RagPipeline._build_messages` | `test_repository.py::test_history_order_and_trim`, `test_pipeline.py::test_history_is_included_and_trimmed` | — (la búsqueda usa el historial solo en preguntas de seguimiento: ver HU-04 CA-02) |
+| RF-I-03 | Búsqueda de similitud, 5 fragmentos, similitud mínima | ✅ | `RagPipeline.retrieve` y filtro por `SIM_THRESHOLD` (`app/rag/pipeline.py`), `TOP_K=5` | `test_pipeline.py::test_low_similarity_derives_without_calling_llm`, `test_retrieval_real.py` (54/54 en el top 5) | Umbral 0.80 en vez de 0.75 (sección 3) |
+| RF-I-04 | Registrar mensajes y respuestas con tiempo, fragmentos, similitud máxima y calificación | ✅ | `add_message`, `record_metric`, `rate_response` (repositorios); tablas `mensajes`, `metricas`, `metricas_fragmentos` | `test_repository.py::test_record_metric_answered_stores_fragments_and_provider`, `test_rate_response_bounds`, `test_service.py::test_rate_updates_metric` | — |
+| RF-I-05 | Cargar PDF/DOCX, fragmentar, vectorizar e indexar sin código ni reinicio; error con el nombre del archivo | ✅ | `app/admin_service.py`, `app/web_admin.py`, `app/kb_watcher.py` | `test_admin_service.py` (14), `test_web_admin.py::test_upload_*`, `test_kb_watcher.py` (5) | — |
+
+## 5. Requisitos de comportamiento (RF-C)
+
+| Código | Requisito | Estado | Implementación | Pruebas / evidencia | Falta |
+|---|---|---|---|---|---|
+| RF-C-01 | Identificar intención y entidades (inscripción, baja, residencia, servicio social, titulación) | 🟡 | Reglas por tema en `app/rag/query_expansion.py`; reglas de alcance en `app/rag/guards.py` | `test_query_expansion.py` (8) | Solo 4 temas, sin extracción de entidades (N11). El protocolo acepta "sin módulo separado" |
+| RF-C-02 | Respuesta del LLM con consulta, historial y fragmentos; temperatura 0.3 | ✅ | `RagPipeline.answer`, `SYSTEM_PROMPT`; `LLM_TEMPERATURE=0.3` | `test_pipeline.py::test_answered_with_sources_and_prompt_shape`, `test_history_is_included_and_trimmed` | — |
+| RF-C-03 | Validar (fundamentada, tono institucional) y regenerar | ✅ | `RagPipeline.validate` | `test_pipeline.py::test_invented_figure_fails_validation_then_regenerates`, `test_ungrounded_answer_fails_validation`, `test_lista_recortada_*`, volcado del contexto (B8) | El tono solo se pide en las instrucciones; no se valida |
+| RF-C-04 | Derivar por similitud baja o consulta excepcional; mensaje con instancia y canal | 🟡 | `app/rag/messages.py`, `app/rag/guards.py` | `test_pipeline.py::test_low_similarity_derives_without_calling_llm`, `test_out_of_scope_rules_skip_retrieval_and_llm` | `CONTACT_EMAIL` vacío: no se da el canal (correo) |
+| RF-C-05 | Disponibilidad 24/7, respuesta ≤ 30 s | ❌ | `restart: unless-stopped` en `docker-compose.yml` | ≤ 30 s: sí (RNF-EF-01) | Despliegue permanente (N4) |
+| RF-C-06 | Sesiones con id único, inicio/fin y mensajes asociados | ✅ | `get_or_create_conversation` (cierra con `fecha_fin` por inactividad), tabla `conversaciones` | `test_repository.py::test_conversation_reused_within_timeout_new_session_after`, `test_close_conversation_forces_new_session` | — |
+
+## 6. Reglas del negocio (RF-RN)
+
+| Código | Regla | Estado | Implementación | Pruebas / evidencia | Falta |
+|---|---|---|---|---|---|
+| RF-RN-01 | No dar calificaciones, kárdex, adeudos ni datos del SIIA; orientar | ✅ | `app/rag/guards.py` (`datos_personales`), `app/rag/messages.py` | `test_pipeline.py::test_out_of_scope_rules_skip_retrieval_and_llm` | — |
+| RF-RN-02 | Respuestas solo con documentación oficial vigente | ✅ | Regla 1 del prompt, `validate` (sustento y cifras), reemplazo de documentos por versión | `test_pipeline.py::test_ungrounded_answer_fails_validation`, `test_store_kb.py::test_ingest_added_unchanged_replaced_and_persisted`; red-team B6 (forzar alucinación) | — |
+| RF-RN-03 | Precisión ≥ 90 % = respondidas correctamente sin derivación, con consultas de la coordinadora | 🟡 | `precision_rate` (`app/adapters/db_sqlite.py`), `python -m app.cli report` | `test_repository.py::test_metrics_summary_rates_and_reasons`; recuperación 54/54 | Conjunto de consultas de la coordinadora y verificar que las respuestas sean **correctas** (hoy solo cuenta respondidas) |
+
+## 7. Requisitos no funcionales
+
+| Código | Requisito / criterio | Estado | Implementación | Pruebas / evidencia | Falta |
+|---|---|---|---|---|---|
+| RNF-FI-01 | Disponibilidad 99 % mensual, monitoreada | ❌ | — | — | Despliegue en AWS y monitoreo (N4) |
+| RNF-FI-02 | 3 reintentos con espera exponencial; espera total ≤ 90 s; aviso al usuario | 🟡 | `app/adapters/llm_openai_compat.py` (`LLM_MAX_RETRIES=3`), mensaje de servicio no disponible | `test_llm.py` (7), `test_pipeline.py::test_llm_down_derives_gracefully` | El tope total puede excederse |
+| RNF-FI-03 | Integridad referencial y respaldo diario | 🟡 | Llaves foráneas con `ON DELETE CASCADE` | `test_repository.py::test_foreign_key_cascade_deletes_children` | Respaldos (N5) |
+| RNF-US-01 | 90 % de usuarios nuevos logra una consulta útil sin instrucciones | 🟡 | Texto libre, sin comandos | — | Prueba con usuarios (N12) |
+| RNF-US-02 | Claridad y tono; 85 % califica ≥ 4 | 🟡 | Calificación 1-5 guardada en `metricas` | — | Reporte del % ≥ 4 y encuesta (N12) |
+| RNF-US-03 | Funciona en Android, iOS, web y escritorio | 🟡 | Telegram como canal | — | Prueba de integración en los 4 (N12) |
+| RNF-US-04 | Coordinadora actualiza la KB sin conocimientos técnicos; 50 págs en ≤ 10 min | 🟡 | Panel (`app/web_admin.py`) con confirmación de éxito/error | `test_web_admin.py` (12) | Medir el tiempo de carga de un documento de 50 páginas (N12) |
+| RNF-SE-01 | Autenticación por ID de Telegram; intentos no autorizados en logs | 🟡 | Registro automático en `usuarios` | `test_repository.py::test_user_creation_is_idempotent_by_telegram_id` | Registro de intentos no autorizados; definir qué es "usuario no registrado" con registro automático |
+| RNF-SE-02 | No guardar datos sensibles; cifrado en reposo | 🟡 | No se piden datos sensibles; las preguntas de datos personales se derivan | — | Cifrado en reposo (N6) |
+| RNF-SE-03 | HTTPS/TLS; credenciales solo en variables de entorno | 🟡 | `.env` fuera de git; sin credenciales en el historial (revisado); HTTPS hacia Telegram, Groq y SMTP (STARTTLS) | `.gitignore`, `.dockerignore` | HTTPS en el panel (N7) |
+| RNF-SE-04 | 20 casos de inyección neutralizados | ✅ | `app/rag/guards.py`, `RagPipeline.validate`, `app/redteam.py` | `data/redteam_2026-10-22_2346.json` (20/20, LLM real); `test_redteam.py` (16) | — |
+| RNF-EF-01 | 95 % de consultas ≤ 30 s, medido en METRICAS | ✅ | `metricas.tiempo_respuesta_seg` | p95 = 1.69 s en las 10 consultas reales; `data/loadtest_2026-10-22_2332.json` (p95 1.78 s) | Que el sistema reporte el p95 (N13) |
+| RNF-EF-02 | 20 concurrentes, promedio ≤ 30 s, sin errores 5xx | ✅ | — | `data/loadtest_2026-10-22_2332.json` (0/20 errores, LLM simulado); `docs/capacidad-y-costos.md` (LLM real: 6.96 s, 0 errores) | Con Groq gratis la mayoría se deriva por el límite (429) |
+| RNF-EF-03 | Búsqueda vectorial ≤ 2 s en el 99 %, índice en RAM, registrado en logs | 🟡 | FAISS `IndexFlatIP` en memoria | — | Registrar `timings["retrieval"]` y medirlo |
+| RNF-PO-01 | Despliegue en EC2 solo con Dockerfile y docker-compose.yml | 🟡 | `Dockerfile`, `docker-compose.yml` (db, bot, admin) | Arranque verificado en Docker local | EC2 (N4) |
+| RNF-PO-02 | Otra carrera = reindexar y cambiar variables | 🟡 | Documentos y umbrales por configuración | — | Textos de ISC fijos (N8) |
+| RNF-PO-03 | Telegram por API REST de FastAPI; interfaz sin lógica ni acceso a BD/IA | 🟡 | `ConversationService` común (`app/service.py`), adaptador delgado | `test_service.py` (5) | API REST entre canal y backend (N3) |
+
+## 8. Historias de usuario (Lista B) y criterios de aceptación
+
+| HU | CA | Criterio | Estado | Implementación / prueba | Falta |
+|---|---|---|---|---|---|
+| HU-01 Autenticarme por Telegram | CA-01 | Registro automático por ID | ✅ | `get_or_create_user`; `test_repository.py::test_user_creation_is_idempotent_by_telegram_id` | — |
+| | CA-02 | Sin contraseñas | ✅ | Solo ID de Telegram | — |
+| | CA-03 | Accesos no autorizados en logs | ❌ | — | Registro de intentos (panel y bot) |
+| | CA-04 | No se vuelve a registrar | ✅ | Misma prueba que CA-01 | — |
+| HU-02 Enviar consultas | CA-01 | Texto libre | ✅ | `app/telegram_bot.py`; `test_telegram_bot.py::test_mensaje_nuevo_o_editado_recibe_respuesta` | — (N2 resuelto) |
+| | CA-02 | < 30 s | ✅ | RNF-EF-01 | — |
+| | CA-03 | Indicador de escritura | 🟡 | `_typing_loop` (`app/telegram_bot.py`) | Prueba |
+| | CA-04 | Límite de caracteres: pedir dividir | ✅ | `app/service.py`; `test_service.py::test_too_long_message_is_derived_without_calling_llm` | — |
+| HU-03 Requisitos de trámites | CA-01 | Fundamentada en documentos oficiales | ✅ | `validate`; RF-RN-02 | — |
+| | CA-02 | Pasos y documentos del trámite | 🟡 | Reglas 3 y 4 del prompt (pasos numerados, listas completas); `test_pipeline.py::test_prompt_pide_listas_completas` | Evaluar respuestas reales de trámites |
+| | CA-03 | Datos personales se derivan | ✅ | `test_pipeline.py::test_out_of_scope_rules_skip_retrieval_and_llm` | — |
+| | CA-04 | < 30 s | ✅ | RNF-EF-01 | — |
+| HU-04 Preguntas de seguimiento | CA-01 | Historial desde la BD | ✅ | `test_repository.py::test_history_order_and_trim` | — |
+| | CA-02 | Respuestas coherentes | ✅ | `search_query` (`app/rag/query_expansion.py`); `test_pipeline.py::test_seguimiento_busca_con_la_pregunta_anterior`, `test_pregunta_independiente_no_mezcla_el_historial`, `test_seguimiento_encadenado_conserva_el_tema`; en el contenedor 7/7 seguimientos con el fragmento correcto y respuestas correctas del LLM real a "¿Y cuántas horas son?" y "¿Y si lo repruebo?" | — (N1 resuelto) |
+| | CA-03 | Sesión expirada abre una nueva | ✅ | `test_repository.py::test_conversation_reused_within_timeout_new_session_after` | — |
+| | CA-04 | Historial en el contexto del LLM | ✅ | `test_pipeline.py::test_history_is_included_and_trimmed` | — |
+| HU-05 Intención y entidades | CA-01 | Clasifica los 5 tipos | ❌ | Reglas parciales en `app/rag/query_expansion.py` | N11 |
+| | CA-02 | Entidades disponibles para RAG | 🟡 | La expansión aporta vocabulario del tema | Entidades explícitas |
+| | CA-03 | Fuera de dominio deriva | ✅ | Umbral, `guards.py`, NO_INFO; `test_pipeline.py::test_low_similarity_derives_without_calling_llm` | — |
+| | CA-04 | PLN añade ≤ 5 s | ✅ | Reglas locales (milisegundos) | — |
+| HU-06 Respuestas contextualizadas | CA-01 | Solo fragmentos con similitud mínima | ✅ | Filtro por umbral en `RagPipeline.answer` | — |
+| | CA-02 | Tono formal | 🟡 | Regla 3 del prompt | Evaluación |
+| | CA-03 | Extensión para móvil | 🟡 | ≤ 150 palabras (salvo listas completas) | Respuestas > 4,096 caracteres |
+| | CA-04 | Temperatura 0.3 | ✅ | `LLM_TEMPERATURE=0.3` | — |
+| HU-07 Validar antes de enviar | CA-01 | Rechazar sin fundamento | ✅ | `test_pipeline.py::test_ungrounded_answer_fails_validation` | — |
+| | CA-02 | Regenerar | ✅ | `test_pipeline.py::test_invented_figure_fails_validation_then_regenerates` | — |
+| | CA-03 | Si falla el 2.º intento, derivar | ✅ | `test_pipeline.py::test_two_failed_validations_derive` | — |
+| | CA-04 | Resultado registrado | ✅ | `metricas.resultado`, `intentos`, motivo `validation_failed` | — |
+| HU-08 Orientación sin respuesta | CA-01 | Indica instancia | ✅ | `app/rag/messages.py` (Coordinación / Servicios Escolares) | — |
+| | CA-02 | Canal y horario | 🟡 | Horario sí; correo solo si hay `CONTACT_EMAIL` | Configurar `CONTACT_EMAIL` |
+| | CA-03 | Deriva por similitud baja o fuera de dominio | ✅ | `test_pipeline.py::test_low_similarity_derives_without_calling_llm`, `test_out_of_scope_rules_skip_retrieval_and_llm` | — |
+| | CA-04 | Registro con indicador de derivación | ✅ | `test_repository.py::test_record_metric_derived_stores_reason_and_no_provider` | — |
+| HU-09 Registrar y consultar métricas | CA-01 | Registro automático | ✅ | `test_service.py::test_handle_message_persists_and_returns_metric_id` | — |
+| | CA-02 | Reportes filtrables por periodo | 🟡 | CSV y `/api/metricas`; `test_metrics_export.py::test_filtro_por_dia_usa_la_hora_de_tuxtla` | Filtro en el resumen del panel |
+| | CA-03 | Tasa de derivación visible | ✅ | Tarjeta en `app/templates/panel.html`; `test_web_admin.py::test_panel_loads_with_correct_credentials` | — |
+| | CA-04 | Último reporte si no hay datos | ❌ | — | N10 |
+| HU-10 Gestionar sesiones | CA-01 | Sesión nueva al primer mensaje | ✅ | `test_repository.py::test_conversation_without_prior_messages_reused` | — |
+| | CA-02 | Mensajes con el mismo id | ✅ | `test_service.py::test_handle_message_reuses_user_and_session_across_calls` | — |
+| | CA-03 | Cierre por inactividad configurable | ✅ | `SESSION_TIMEOUT_MINUTES` | — |
+| | CA-04 | Reanudar crea sesión nueva | ✅ | `test_repository.py::test_conversation_reused_within_timeout_new_session_after` | — |
+| HU-11 Escalamientos con contexto | CA-01 | Contexto por correo institucional | 🟡 | `app/notify.py`; `test_notify.py::test_notify_sends_email_via_smtp` | SMTP real (hoy Mailtrap) y prueba de entrega |
+| | CA-02 | Horario y correo al estudiante | 🟡 | `app/rag/messages.py` | `CONTACT_EMAIL` vacío |
+| | CA-03 | Registro en METRICAS | 🟡 | La derivación se registra | No se registra si el aviso se envió |
+| | CA-04 | No escalar lo resoluble | ✅ | `should_notify`; `test_notify.py::test_should_not_notify_for_non_escalable_reasons` | — |
+| HU-12 Cualquier dispositivo | CA-01 | Android, iOS, web, escritorio | 🟡 | Telegram | Prueba de integración (N12) |
+| | CA-02 | Sin instalar nada | ✅ | Telegram Web | — |
+| | CA-03 | 24/7 | ❌ | — | N4 |
+| | CA-04 | < 30 s | ✅ | RNF-EF-01 | — |
+| HU-13 Reportes de desempeño | CA-01 | Total, precisión, tiempo, derivación y tipos más frecuentes | 🟡 | Panel y CSV (todo menos tipos de consulta) | Tipos de consulta (N9) |
+| | CA-02 | Filtro por fechas | 🟡 | CSV y API | Filtro en el panel |
+| | CA-03 | Precisión = % resueltas sin derivación | ✅ | `precision_rate`; `test_repository.py::test_metrics_summary_rates_and_reasons` | (Ver RF-RN-03: "correctamente") |
+| | CA-04 | Exportable | ✅ | `/metricas/exportar.csv`; `test_metrics_export.py` (15) | — |
+| HU-14 Actualizar la base de conocimiento | CA-01 | PDF y DOCX | ✅ | `app/rag/loaders.py`; `test_store_kb.py::test_ingest_docx` | — |
+| | CA-02 | Fragmenta y vectoriza solo | ✅ | `test_admin_service.py::test_upload_new_document_indexes_and_syncs_to_db` | — |
+| | CA-03 | Índice se recarga de inmediato | ✅ | `app/kb_watcher.py`; `test_kb_watcher.py` (5) | — |
+| | CA-04 | Error con nombre de archivo | ✅ | `test_web_admin.py::test_upload_unsupported_extension_shows_error_and_is_not_indexed` | — |
+| | CA-05 | Sin tocar el código | ✅ | Panel web | — |
+| HU-15 Desempeño histórico | CA-01 | Métricas desde el despliegue | ✅ | Todas quedan en `metricas`; CSV sin fechas = todo | — |
+| | CA-02 | Agrupadas por semana, mes o ciclo | ❌ | — | N10 |
+| | CA-03 | Tipos más frecuentes y áreas con más derivación | ❌ | Solo motivos de derivación | N9 |
+| | CA-04 | Indicar periodo mínimo si faltan datos | ❌ | — | N10 |
+
+## 9. Casos de uso
+
+| UC | Nombre | Estado | Implementación |
+|---|---|---|---|
+| UC-01 | Autenticar estudiante | 🟡 | `get_or_create_user` (sin registro de intentos no autorizados) |
+| UC-02 | Enviar consulta | ✅ | `app/telegram_bot.py` (mensajes nuevos y editados; `test_telegram_bot.py`) |
+| UC-03 | Consultar trámite | ✅ | Pipeline RAG |
+| UC-04 | Conversación contextual | ✅ | Historial al LLM y, en preguntas de seguimiento, a la búsqueda (`search_query`) |
+| UC-05 | Orientar a área responsable | 🟡 | `app/rag/messages.py` (sin `CONTACT_EMAIL`) |
+| UC-06 | Notificar respuesta | ✅ | Respuesta en Telegram con HTML y calificación |
+| UC-07 | Procesar con PLN | 🟡 | Reglas parciales (N11) |
+| UC-08 | Buscar en FAISS | ✅ | `app/adapters/vectorstore_faiss.py`, `RagPipeline.retrieve` |
+| UC-09 | Generar respuesta (LLM) | ✅ | `RagPipeline.answer`, `FallbackLLM` |
+| UC-10 | Registrar interacciones en PostgreSQL | ✅ | `app/adapters/db_postgres.py` (pruebas en Docker 20/20) |
+| UC-11 | Gestionar sesión | ✅ | `get_or_create_conversation` |
+| UC-12 | Escalar a coordinadora | 🟡 | `app/notify.py` (Mailtrap, sin registro) |
+| UC-13 | Validar respuesta | ✅ | `RagPipeline.validate` |
+| UC-14 | Consultar métricas | 🟡 | Panel y CSV (sin tipos de consulta ni agrupación) |
+| UC-15 | Actualizar base FAISS | ✅ | Panel + `KBWatcher` |
+
+## 10. Evidencia en el repositorio
+
+| Archivo | Qué demuestra |
+|---|---|
+| `data/redteam_2026-10-22_2346.json` | RNF-SE-04: 20/20 con LLM real, 0 inconclusos |
+| `data/redteam_2026-10-22_2328.json` | Corrida previa (19/20, falla B8) |
+| `data/loadtest_2026-10-22_2332.json` | RNF-EF-01/02: 20 usuarios, base completa, p95 1.78 s, 0 errores (LLM simulado) |
+| `data/retrieval_cases.jsonl` + `tests/test_retrieval_real.py` | RF-I-03: 54/54 preguntas con el fragmento correcto en el top 5 |
+| `docs/capacidad-y-costos.md` | RNF-EF-02 con LLM real y límites del plan gratuito de Groq |
+| Tabla `metricas` (base real) | RNF-EF-01: 10 consultas, prom. 0.96 s, p95 1.69 s, máx. 2.0 s |
+| Suite de pruebas | 263 aprobadas, 4 omitidas sin PostgreSQL (20/20 en Docker con PostgreSQL) |
