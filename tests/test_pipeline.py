@@ -97,6 +97,26 @@ def test_llm_down_derives_gracefully(kb, cfg):
     assert r.reason is Reason.LLM_UNAVAILABLE and "no está disponible" in r.text
 
 
+def test_los_dos_intentos_comparten_un_solo_tope(kb, cfg):
+    """RNF-FI-02: el reintento por validación no recibe otro presupuesto
+    completo; usa la misma fecha límite que el primer intento."""
+    now = [500.0]
+    bad = GOOD.replace("20 días", "45 días")  # cifra inventada: obliga a reintentar
+    llm = ScriptedLLM(bad, GOOD)
+    real_chat = llm.chat
+
+    def slow_chat(*a, **kw):
+        now[0] += 30  # cada intento "tarda" 30 s
+        return real_chat(*a, **kw)
+
+    llm.chat = slow_chat
+    p = pipe(kb, cfg, llm)
+    p._clock = lambda: now[0]
+    r = p.answer("¿Cómo solicito la baja temporal?")
+    assert r.outcome is Outcome.ANSWERED and r.attempts == 2
+    assert llm.deadlines == [500.0 + cfg.llm_total_budget] * 2
+
+
 def test_history_is_included_and_trimmed(kb, cfg):
     llm = ScriptedLLM(GOOD)
     hist = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"} for i in range(30)]

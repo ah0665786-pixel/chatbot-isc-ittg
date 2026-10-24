@@ -12,8 +12,8 @@ Leyenda: ✅ cumple y tiene prueba o evidencia · 🟡 parcial, sin prueba o sin
 | RF-I (información) | 5 | 5 | 0 | 0 |
 | RF-C (comportamiento) | 6 | 3 | 2 | 1 |
 | RF-RN (reglas de negocio) | 3 | 2 | 1 | 0 |
-| RNF | 17 | 3 | 13 | 1 |
-| Criterios de aceptación HU-01 a HU-15 | 61 | 41 | 13 | 7 |
+| RNF | 17 | 4 | 12 | 1 |
+| Criterios de aceptación HU-01 a HU-15 | 61 | 42 | 12 | 7 |
 
 Los RNF casi nunca están en ❌ porque la funcionalidad existe; lo que falta es el despliegue
 en AWS o la **medición** que pide el criterio (encuestas, pruebas de integración, respaldos,
@@ -48,14 +48,14 @@ cifrado, monitoreo).
 | Aviso por correo a un buzón de pruebas (`sandbox.smtp.mailtrap.io`), sin registro de envíos, síncrono, sin variables en `.env.example` | HU-11 CA-01/CA-03, UC-12 |
 | `CONTACT_EMAIL` vacío: la derivación no da canal de contacto, solo horario | RF-C-04, HU-08 CA-02, HU-11 CA-02 |
 | Tiempo de búsqueda medido pero no registrado | **RNF-EF-03** ("registrado en logs") |
-| Respuestas de más de 4,096 caracteres sin manejo en Telegram | HU-06 CA-03, HU-02 |
-| El tope de espera total (≤ 90 s) puede excederse (presupuesto reiniciado en cada intento) | RNF-FI-02 |
-| Bot de Telegram sin pruebas (indicador de escritura, calificación, errores) | HU-02 CA-03 |
+| ✅ **Resuelto el 2026-10-24**. Respuestas de más de 4,096 caracteres sin manejo en Telegram: Telegram las rechazaba, el reintento en texto plano también excedía y el estudiante se quedaba sin respuesta. **Corrección**: `split_markdown` (`app/telegram_format.py`) parte el Markdown por párrafo, luego por línea y por palabra (sin separar un bloque de código), de modo que el HTML de cada trozo quepa en 4,000 caracteres (margen porque Telegram cuenta emojis como 2); cada trozo se convierte por separado, así que ninguna etiqueta queda abierta entre mensajes. `on_message` los envía en orden y los botones de calificación van solo en el último; si Telegram rechaza el HTML de un trozo, ese trozo se reenvía en texto plano. **Medido** con Telegram simulado que rechaza > 4,096 caracteres y una lista de 40 opciones (15,820 caracteres): antes, 0 mensajes entregados (2 rechazos y `BadRequest` sin atrapar); después, 4 mensajes (3,969-3,987 caracteres), las 40 opciones completas y los botones solo en el 4.º. Pruebas: `test_telegram_format.py` (5) y `test_telegram_bot.py::test_respuesta_larga_se_divide_y_los_botones_van_al_final`, `test_respuesta_larga_en_texto_plano_tambien_se_divide` | HU-06 CA-03, HU-02 |
+| ✅ **Resuelto el 2026-10-24**. El tope de espera total (≤ 90 s) podía excederse: `FallbackLLM.chat` reiniciaba el presupuesto de 80 s en cada llamada y el pipeline hace hasta 2; además la fecha límite solo se revisaba antes de cada intento, y un intento podía durar `LLM_TIMEOUT` (25 s) completo después de ella. **Corrección**: `RagPipeline.answer` fija una sola fecha límite (`LLM_TOTAL_BUDGET`, 80 s) y la pasa a los 2 intentos; `FallbackLLM.chat(deadline=)` la respeta en todos los proveedores, y `OpenAICompatLLM.chat` recorta el timeout de cada petición y cada espera entre reintentos al tiempo restante. **Medido** con reloj simulado, 3 proveedores y `LLM_TIMEOUT`=25 s: si ninguno contesta, antes 104 s y después 80 s; si el 1.er intento llega a los 77 s con una respuesta inválida y en el 2.º nadie contesta, antes 181 s (el peor caso teórico rondaba 207 s) y después 80 s. Pruebas con reloj simulado: `test_llm.py` (4 nuevas; p. ej. 3 proveedores lentos terminan en ≤ 80 s en vez de > 3 min) y `test_pipeline.py::test_los_dos_intentos_comparten_un_solo_tope`. Nota: el timeout de httpx es por operación (conectar, leer), no por petición completa; con las respuestas no-streaming del LLM, en la práctica equivale | RNF-FI-02 |
+| ✅ **Resuelto el 2026-10-24**. Bot de Telegram sin pruebas (indicador de escritura, calificación, errores). `test_telegram_bot.py` pasa de 3 a 13 pruebas, con updates simulados (`Update.de_json`) y un bot falso, sin red: el indicador "escribiendo…" se envía antes de la respuesta, se renueva mientras el pipeline trabaja y se detiene al responder o al fallar; botones 1-5 solo en respuestas (no en derivaciones); calificación registrada y botones retirados; calificación fallida o `callback_data` mal formado avisan sin tronar; error del servicio con mensaje al estudiante; HTML rechazado se reenvía en texto plano | HU-02 CA-03 |
 | "Precisión" = % respondidas, sin verificar que sean correctas con consultas de la coordinadora | RF-RN-03 |
 | Resumen del panel sin filtro de fechas (sí en CSV y API) | HU-09 CA-02, HU-13 CA-02 |
 
 Dos tareas ya propuestas cubren varios de estos: "Registro de accesos, avisos por correo y
-tiempo de búsqueda" y "Respuestas largas, tope de 90 s y pruebas del bot".
+tiempo de búsqueda" y "Respuestas largas, tope de 90 s y pruebas del bot" (esta última, resuelta el 2026-10-24).
 
 ## 2. Numeración de HU: código (Lista A) → protocolo (Lista B)
 
@@ -113,7 +113,7 @@ tiempo de búsqueda" y "Respuestas largas, tope de 90 s y pruebas del bot".
 | Código | Requisito / criterio | Estado | Implementación | Pruebas / evidencia | Falta |
 |---|---|---|---|---|---|
 | RNF-FI-01 | Disponibilidad 99 % mensual, monitoreada | ❌ | — | — | Despliegue en AWS y monitoreo (N4) |
-| RNF-FI-02 | 3 reintentos con espera exponencial; espera total ≤ 90 s; aviso al usuario | 🟡 | `app/adapters/llm_openai_compat.py` (`LLM_MAX_RETRIES=3`), mensaje de servicio no disponible | `test_llm.py` (7), `test_pipeline.py::test_llm_down_derives_gracefully` | El tope total puede excederse |
+| RNF-FI-02 | 3 reintentos con espera exponencial; espera total ≤ 90 s; aviso al usuario | ✅ | `app/adapters/llm_openai_compat.py` (`LLM_MAX_RETRIES=3`; fecha límite compartida que recorta timeouts y esperas), `app/rag/pipeline.py` (un solo tope de `LLM_TOTAL_BUDGET`=80 s para los 2 intentos), mensaje de servicio no disponible | `test_llm.py` (11, 4 con reloj simulado), `test_pipeline.py::test_los_dos_intentos_comparten_un_solo_tope`, `test_llm_down_derives_gracefully` | — |
 | RNF-FI-03 | Integridad referencial y respaldo diario | 🟡 | Llaves foráneas con `ON DELETE CASCADE` | `test_repository.py::test_foreign_key_cascade_deletes_children` | Respaldos (N5) |
 | RNF-US-01 | 90 % de usuarios nuevos logra una consulta útil sin instrucciones | 🟡 | Texto libre, sin comandos | — | Prueba con usuarios (N12) |
 | RNF-US-02 | Claridad y tono; 85 % califica ≥ 4 | 🟡 | Calificación 1-5 guardada en `metricas` | — | Reporte del % ≥ 4 y encuesta (N12) |
@@ -140,7 +140,7 @@ tiempo de búsqueda" y "Respuestas largas, tope de 90 s y pruebas del bot".
 | | CA-04 | No se vuelve a registrar | ✅ | Misma prueba que CA-01 | — |
 | HU-02 Enviar consultas | CA-01 | Texto libre | ✅ | `app/telegram_bot.py`; `test_telegram_bot.py::test_mensaje_nuevo_o_editado_recibe_respuesta` | — (N2 resuelto) |
 | | CA-02 | < 30 s | ✅ | RNF-EF-01 | — |
-| | CA-03 | Indicador de escritura | 🟡 | `_typing_loop` (`app/telegram_bot.py`) | Prueba |
+| | CA-03 | Indicador de escritura | ✅ | `_typing_loop` (`app/telegram_bot.py`); `test_telegram_bot.py::test_escribiendo_se_envia_mientras_piensa_y_se_detiene_al_responder`, `test_escribiendo_se_detiene_si_el_servicio_falla` | — |
 | | CA-04 | Límite de caracteres: pedir dividir | ✅ | `app/service.py`; `test_service.py::test_too_long_message_is_derived_without_calling_llm` | — |
 | HU-03 Requisitos de trámites | CA-01 | Fundamentada en documentos oficiales | ✅ | `validate`; RF-RN-02 | — |
 | | CA-02 | Pasos y documentos del trámite | 🟡 | Reglas 3 y 4 del prompt (pasos numerados, listas completas); `test_pipeline.py::test_prompt_pide_listas_completas` | Evaluar respuestas reales de trámites |
@@ -156,7 +156,7 @@ tiempo de búsqueda" y "Respuestas largas, tope de 90 s y pruebas del bot".
 | | CA-04 | PLN añade ≤ 5 s | ✅ | Reglas locales (milisegundos) | — |
 | HU-06 Respuestas contextualizadas | CA-01 | Solo fragmentos con similitud mínima | ✅ | Filtro por umbral en `RagPipeline.answer` | — |
 | | CA-02 | Tono formal | 🟡 | Regla 3 del prompt | Evaluación |
-| | CA-03 | Extensión para móvil | 🟡 | ≤ 150 palabras (salvo listas completas) | Respuestas > 4,096 caracteres |
+| | CA-03 | Extensión para móvil | 🟡 | ≤ 150 palabras (salvo listas completas); las respuestas de más de 4,096 caracteres se dividen en varios mensajes (`split_markdown`, `test_telegram_bot.py::test_respuesta_larga_se_divide_y_los_botones_van_al_final`) | Evaluar la lectura en el celular |
 | | CA-04 | Temperatura 0.3 | ✅ | `LLM_TEMPERATURE=0.3` | — |
 | HU-07 Validar antes de enviar | CA-01 | Rechazar sin fundamento | ✅ | `test_pipeline.py::test_ungrounded_answer_fails_validation` | — |
 | | CA-02 | Regenerar | ✅ | `test_pipeline.py::test_invented_figure_fails_validation_then_regenerates` | — |
@@ -226,4 +226,4 @@ tiempo de búsqueda" y "Respuestas largas, tope de 90 s y pruebas del bot".
 | `data/retrieval_cases.jsonl` + `tests/test_retrieval_real.py` | RF-I-03: 54/54 preguntas con el fragmento correcto en el top 5 |
 | `docs/capacidad-y-costos.md` | RNF-EF-02 con LLM real y límites del plan gratuito de Groq |
 | Tabla `metricas` (base real) | RNF-EF-01: 10 consultas, prom. 0.96 s, p95 1.69 s, máx. 2.0 s |
-| Suite de pruebas | 263 aprobadas, 4 omitidas sin PostgreSQL (20/20 en Docker con PostgreSQL) |
+| Suite de pruebas | 283 aprobadas, 4 omitidas sin PostgreSQL (20/20 en Docker con PostgreSQL) |

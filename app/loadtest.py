@@ -62,7 +62,8 @@ class FakeFastLLM:
     def __init__(self, min_s: float = 0.3, max_s: float = 1.2):
         self.min_s, self.max_s = min_s, max_s
 
-    def chat(self, messages, temperature: float = 0.3, max_tokens: int = 900) -> LLMReply:
+    def chat(self, messages, temperature: float = 0.3, max_tokens: int = 900,
+             deadline: float | None = None) -> LLMReply:
         time.sleep(random.uniform(self.min_s, self.max_s))
         return LLMReply(
             "Conforme al Artículo 9, las sanciones incluyen amonestación verbal o por "
@@ -77,7 +78,8 @@ class FakeGroundedLLM(FakeFastLLM):
 
     _FIRST = re.compile(r"\[1\] \((.*?)\) (.*?)(?:\n\n\[2\]|\n\nPREGUNTA:)", re.S)
 
-    def chat(self, messages, temperature: float = 0.3, max_tokens: int = 900) -> LLMReply:
+    def chat(self, messages, temperature: float = 0.3, max_tokens: int = 900,
+             deadline: float | None = None) -> LLMReply:
         time.sleep(random.uniform(self.min_s, self.max_s))
         m = self._FIRST.search(messages[-1]["content"])
         if not m:

@@ -23,7 +23,7 @@ from app.config import Settings
 from app.domain import Outcome
 from app.runtime import build_runtime
 from app.service import ConversationService
-from app.telegram_format import markdown_to_telegram_html, strip_markdown
+from app.telegram_format import markdown_to_telegram_html, split_markdown, strip_markdown
 
 log = logging.getLogger("telegram_bot")
 
@@ -81,14 +81,20 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         row = [InlineKeyboardButton(str(n), callback_data=f"rate:{metric_id}:{n}")
                for n in range(1, 6)]
         keyboard = InlineKeyboardMarkup([row])
-    try:
-        await message.reply_text(markdown_to_telegram_html(result.text),
-                                        parse_mode=ParseMode.HTML, reply_markup=keyboard)
-    except BadRequest:
-        # Telegram rechazó el HTML (etiquetas mal formadas): mejor texto plano
-        # que dejar al estudiante sin respuesta.
-        log.warning("Telegram rechazó el HTML; se envía como texto plano")
-        await message.reply_text(strip_markdown(result.text), reply_markup=keyboard)
+    # Telegram no acepta más de 4,096 caracteres por mensaje: una respuesta
+    # larga (p. ej. una lista completa) se manda en varios, y los botones van
+    # solo en el último para calificar la respuesta entera.
+    parts = split_markdown(result.text)
+    for i, part in enumerate(parts):
+        markup = keyboard if i == len(parts) - 1 else None
+        try:
+            await message.reply_text(markdown_to_telegram_html(part),
+                                     parse_mode=ParseMode.HTML, reply_markup=markup)
+        except BadRequest:
+            # Telegram rechazó el HTML (etiquetas mal formadas): mejor texto
+            # plano que dejar al estudiante sin respuesta.
+            log.warning("Telegram rechazó el HTML; se envía como texto plano")
+            await message.reply_text(strip_markdown(part), reply_markup=markup)
 
 
 async def on_rating(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

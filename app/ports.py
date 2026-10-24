@@ -17,7 +17,8 @@ class LLMReply:
 
 class LLMProvider(Protocol):
     def chat(self, messages: Sequence[dict], temperature: float = 0.3,
-             max_tokens: int = 900) -> LLMReply: ...
+             max_tokens: int = 900, deadline: float | None = None) -> LLMReply:
+        """deadline: instante de time.monotonic() en que hay que rendirse."""
 
 
 class Embedder(Protocol):

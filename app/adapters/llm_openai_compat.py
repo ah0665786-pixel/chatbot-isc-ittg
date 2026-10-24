@@ -2,7 +2,12 @@
 compat, Ollama, vLLM...). Cambiar de proveedor = cambiar 3 variables de entorno.
 
 Incluye lo que exige RNF-FI-02: reintentos con espera exponencial y tope de
-espera total; y detecta modelos retirados para no reintentar en vano."""
+espera total; y detecta modelos retirados para no reintentar en vano.
+
+El tope es una fecha límite (reloj monotónico) que se comparte entre todos los
+reintentos, todos los proveedores y los 2 intentos del pipeline: ninguna
+espera ni petición se pasa de ella, así que la consulta completa respeta el
+tope aunque cada pieza tenga su propio timeout."""
 from __future__ import annotations
 
 import logging
@@ -38,10 +43,12 @@ class OpenAICompatLLM:
     def __init__(self, name: str, base_url: str, api_key: str, model: str,
                  timeout: float = 25.0, max_retries: int = 3, extra: dict | None = None,
                  transport: httpx.BaseTransport | None = None,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep,
+                 clock: Callable[[], float] = time.monotonic):
         self.name, self.model, self.extra = name, model, dict(extra or {})
         self.max_retries = max(1, max_retries)
-        self._sleep = sleep
+        self.timeout = timeout
+        self._sleep, self._clock = sleep, clock
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -61,10 +68,14 @@ class OpenAICompatLLM:
                    "temperature": temperature, "max_tokens": max_tokens, **self.extra}
         last: Exception | None = None
         for attempt in range(self.max_retries):
-            if deadline is not None and time.monotonic() >= deadline:
-                break
+            timeout = self.timeout
+            if deadline is not None:
+                remaining = deadline - self._clock()
+                if remaining <= 0:
+                    break
+                timeout = min(timeout, remaining)  # un intento no se come el tope
             try:
-                r = self._client.post("/chat/completions", json=payload)
+                r = self._client.post("/chat/completions", json=payload, timeout=timeout)
             except (httpx.TimeoutException, httpx.TransportError) as e:
                 last = LLMError(f"{self.name}: red/timeout ({type(e).__name__})")
             else:
@@ -80,7 +91,10 @@ class OpenAICompatLLM:
                 else:
                     raise LLMError(f"{self.name}: HTTP {r.status_code} {body}")
             if attempt < self.max_retries - 1:
-                self._sleep(2 ** attempt)  # 1 s, 2 s, 4 s...
+                wait = 2 ** attempt  # 1 s, 2 s, 4 s...
+                if deadline is not None:
+                    wait = min(wait, max(0.0, deadline - self._clock()))
+                self._sleep(wait)
         raise last or LLMError(f"{self.name}: sin respuesta dentro del tiempo permitido")
 
     @staticmethod
@@ -96,14 +110,19 @@ class FallbackLLM:
     """Prueba los proveedores en orden. Si el modelo de uno fue retirado, lo
     marca como muerto durante el proceso y avisa fuerte en el log."""
 
-    def __init__(self, providers: Sequence[OpenAICompatLLM], total_budget: float = 80.0):
+    def __init__(self, providers: Sequence[OpenAICompatLLM], total_budget: float = 80.0,
+                 clock: Callable[[], float] = time.monotonic):
         self.providers = list(providers)
         self.total_budget = total_budget
+        self._clock = clock
         self._dead: set[str] = set()
 
     def chat(self, messages: Sequence[dict], temperature: float = 0.3,
-             max_tokens: int = 900) -> LLMReply:
-        deadline = time.monotonic() + self.total_budget
+             max_tokens: int = 900, deadline: float | None = None) -> LLMReply:
+        """Sin deadline, el tope cuenta desde esta llamada. El pipeline pasa el
+        suyo para que sus 2 intentos compartan un mismo tope (RNF-FI-02)."""
+        own = self._clock() + self.total_budget
+        deadline = own if deadline is None else min(deadline, own)
         errors: list[str] = []
         for p in self.providers:
             if p.name in self._dead:

@@ -88,6 +88,7 @@ class RagPipeline:
                  watcher=None):
         self.cfg, self.embedder, self.store, self.llm = cfg, embedder, store, llm
         self._watcher = watcher
+        self._clock = time.monotonic  # reemplazable en pruebas
 
     # ---- recuperación -------------------------------------------------------
     def retrieve(self, question: str, k: int | None = None,
@@ -160,10 +161,14 @@ class RagPipeline:
 
         messages = self._build_messages(q, hits, history or [])
         provider = model = ""
+        # Un solo tope para los 2 intentos (RNF-FI-02): si el primero se tardó,
+        # el segundo solo tiene lo que sobra, no otro presupuesto completo.
+        deadline = self._clock() + self.cfg.llm_total_budget
         for attempt in (1, 2):
             t = time.perf_counter()
             try:
-                reply = self.llm.chat(messages, temperature=self.cfg.llm_temperature)
+                reply = self.llm.chat(messages, temperature=self.cfg.llm_temperature,
+                                      deadline=deadline)
             except LLMUnavailable as e:
                 return derive(Reason.LLM_UNAVAILABLE, hits, max_score, detail=str(e),
                               provider=provider, model=model, attempts=attempt - 1)

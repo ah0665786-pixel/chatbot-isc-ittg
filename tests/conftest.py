@@ -25,9 +25,11 @@ class ScriptedLLM:
 
     def __init__(self, *replies, error=None):
         self.replies, self.calls, self.error = list(replies), [], error
+        self.deadlines: list = []
 
-    def chat(self, messages, temperature=0.3, max_tokens=700):
+    def chat(self, messages, temperature=0.3, max_tokens=700, deadline=None):
         self.calls.append(list(messages))
+        self.deadlines.append(deadline)
         if self.error:
             raise self.error
         text = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
