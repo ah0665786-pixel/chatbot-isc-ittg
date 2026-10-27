@@ -13,7 +13,7 @@ Leyenda: ✅ cumple y tiene prueba o evidencia · 🟡 parcial, sin prueba o sin
 | RF-C (comportamiento) | 6 | 4 | 1 | 1 |
 | RF-RN (reglas de negocio) | 3 | 2 | 1 | 0 |
 | RNF | 17 | 5 | 11 | 1 |
-| Criterios de aceptación HU-01 a HU-15 | 61 | 45 | 10 | 6 |
+| Criterios de aceptación HU-01 a HU-15 | 61 | 52 | 8 | 1 |
 
 Los RNF casi nunca están en ❌ porque la funcionalidad existe; lo que falta es el despliegue
 en AWS o la **medición** que pide el criterio (encuestas, pruebas de integración, respaldos,
@@ -33,11 +33,11 @@ cifrado, monitoreo).
 | N6 | **Sin cifrado en reposo** de la base (el protocolo lo pide vía RDS); se guardan `telegram_id`, nombre de Telegram y el texto libre de las preguntas. | RNF-SE-02 | — |
 | N7 | **El panel no usa HTTPS**: hoy solo escucha en `127.0.0.1`; para exponerlo hace falta un proxy con TLS. | RNF-SE-03 | `docker-compose.yml` |
 | N8 | **Textos de ISC fijos en el código** (11 lugares: instrucciones del LLM, bienvenida, mensajes de derivación, asunto del correo, panel): usar el sistema en otra carrera exige editar código, no solo configuración. | RNF-PO-02 | `grep` en `app/` |
-| N9 | **No existen "tipos de consulta más frecuentes" ni "áreas con más derivación"**: no se clasifica el tema de cada consulta; solo hay motivos de derivación. | HU-13 CA-01, HU-15 CA-03 | — |
-| N10 | **Desempeño histórico incompleto**: no hay agrupación por semana/mes/ciclo, ni aviso de "periodo mínimo" cuando faltan datos, ni "último reporte" cuando no hay datos en el periodo. | HU-15 CA-02, CA-04; HU-09 CA-04 | — |
-| N11 | **Clasificación de intención solo parcial**: la expansión de consulta reconoce titulación, convalidación, repetición y actividades complementarias, pero no inscripción, baja, residencia ni servicio social, y no extrae entidades. | RF-C-01, HU-05 CA-01/CA-02 | `app/rag/query_expansion.py` |
+| N9 | ✅ **Resuelto el 2026-10-26** (rama `reportes-coordinadora`). **No existían "tipos de consulta más frecuentes" ni "áreas con más derivación"**: no se clasificaba el tema de cada consulta; solo había motivos de derivación. **Corrección**: cada consulta se guarda con uno de 9 temas (plan de estudios, residencia profesional, servicio social, titulación, bajas, traslados, actividades complementarias, permisos, otros) en la columna nueva `metricas.tema` (`classify_topic`, ver N11). Las consultas anteriores quedan sin tema y se muestran como "Sin clasificar" (no se reclasifican). El panel tiene una sección "Reportes" con los tipos de consulta más frecuentes (consultas y % del total por tema) y los temas con más derivaciones (derivadas y tasa de derivación del tema); el CSV por consulta tiene la columna "Tema". El reporte se calcula en `app/reports.py` sobre `metric_rows`, que ya comparten SQLite y PostgreSQL. | HU-13 CA-01, HU-15 CA-03 | `test_reports.py::test_tipos_mas_frecuentes_y_temas_con_mas_derivaciones`, `test_metrics_export.py::test_csv_columnas_etiquetas_y_hora_local`; `test_repository_postgres.py::test_tema_reporte_y_p95` en Docker |
+| N10 | ✅ **Resuelto el 2026-10-26** (rama `reportes-coordinadora`). **Desempeño histórico incompleto**: no había agrupación por semana/mes/ciclo, ni aviso de "periodo mínimo" cuando faltan datos, ni "último reporte" cuando no hay datos en el periodo. **Corrección** (`app/reports.py`, sección "Reportes" del panel y `/reportes/exportar.csv`): filtro por fechas en hora de Tuxtla (ambos días incluidos; campos vacíos = sin fecha, como en `/metricas/exportar.csv`) y agrupación por semana (lunes a domingo), mes o ciclo escolar. El ciclo del TecNM se define solo en `SCHOOL_CYCLES`: Enero-Junio (1 ene-30 jun), Verano (julio) y Agosto-Diciembre (1 ago-31 dic), numerados 1, 2 y 3 como en el SII. "Suficiente" = `REPORTES_MIN_CONSULTAS` (20 por defecto): con menos de 20 tiempos el p95 es simplemente el máximo. Con menos consultas el panel dice cuántas hay y el periodo mínimo necesario ("del 04/10/2026 al 25/10/2026": desde el día en que se juntan las 20 más recientes) y marca cada periodo con "pocos datos"; si el periodo no tiene ninguna consulta, muestra el último reporte disponible ("Último reporte disponible: Octubre 2026 (17 consultas)"). **Medido en Docker** con la base real (17 consultas, todas "Sin clasificar"): "Datos insuficientes: en total hay 17 consultas registradas (desde el 22/10/2026) y se necesitan al menos 20". | HU-15 CA-02, CA-04; HU-09 CA-04 | `test_reports.py` (34: periodos, cortes a medianoche de Tuxtla en semana/mes/ciclo, periodo mínimo, sin datos, panel y CSV) |
+| N11 | 🟡 **Avanzado el 2026-10-26** (rama `reportes-coordinadora`). **Clasificación de intención solo parcial**: la expansión de consulta reconocía titulación, convalidación, repetición y actividades complementarias, pero no inscripción, baja, residencia ni servicio social, y no extrae entidades. **Corrección**: `classify_topic` (`app/rag/query_expansion.py`) reutiliza los patrones de la expansión (`_TITULACION`, `_CONVALIDACION`, `_REPETICION`, `_ACTIVIDADES`) y agrega residencia, servicio social, bajas, traslados, permisos y plan de estudios (inscripción, reinscripción, carga y repetición de materias van aquí), con prioridad al trámite que se quiere hacer ("¿Me puedo titular con la residencia?" es titulación). En una pregunta de seguimiento sin tema propio ("¿Y cuántas horas son?") el tema sale de las preguntas previas del estudiante, igual que en `search_query`; si nombra el suyo ("¿Y la residencia?"), gana el suyo. **Medido** con las 62 preguntas de `data/retrieval_cases.jsonl` (se completó el campo `tema` en las 23 que no lo tenían): 62/62 (titulación 20/20, residencia 8/8, otros 8/8, actividades 7/7, servicio social 6/6, traslados 6/6, plan de estudios 6/6, bajas 1/1). **Falta**: el conjunto no trae preguntas de permisos ni de traslado propiamente dicho (solo convalidación), así que esos temas solo tienen las pruebas escritas a mano; no hay extracción de entidades. | RF-C-01, HU-05 CA-01/CA-02 | `test_topics.py` (27, con la medición por tema y 7 casos de seguimiento) |
 | N12 | **Criterios de usabilidad sin medir**: 90 % de usuarios nuevos sin instrucciones, 85 % con calificación ≥ 4 (no se calcula en ningún reporte), prueba en Android/iOS/web/escritorio, carga de 50 páginas en ≤ 10 min. | RNF-US-01 a 04 | — |
-| N13 | **El sistema no reporta el p95**: el criterio es "95 % ≤ 30 s, medido en METRICAS". Medido a mano hoy: p95 = 1.69 s en las 10 consultas reales, pero ni el panel ni el CSV lo calculan. | RNF-EF-01 | Consulta SQL sobre `metricas` |
+| N13 | ✅ **Resuelto el 2026-10-26** (rama `reportes-coordinadora`). **El sistema no reportaba el p95**: el criterio es "95 % ≤ 30 s, medido en METRICAS"; se había medido a mano (1.69 s en 10 consultas). **Corrección**: `percentile` (`app/reports.py`, rango más cercano) en `metrics_summary` de SQLite y PostgreSQL (tarjeta "Tiempo p95 (meta: ≤ 30 s)" del panel y `/api/metricas`), en el reporte por periodo y en el CSV del reporte (columnas "Tiempo promedio (s)" y "Tiempo p95 (s)" por periodo y total). **Medido en Docker** con la base real: 17 consultas, promedio 0.99 s, p95 2.00 s. | RNF-EF-01 | `test_reports.py::test_p95_por_rango_mas_cercano`, `test_resumen_trae_p95`, `test_csv_del_reporte`; `test_repository_postgres.py::test_tema_reporte_y_p95` |
 | N14 | **La numeración de HU en el código es la Lista A**: p. ej. el indicador de escritura dice "HU-01 CA-03" y es HU-02 CA-03 en la Lista B (ver sección 2). | Todas | — |
 | N15 | ✅ **Resuelto el 2026-10-24**. **El bot no arrancaba si el panel había leído métricas**: con `autocommit = False`, cada lectura de `PostgresRepository` (`metrics_summary`, `get_history`) abría una transacción que quedaba viva hasta la siguiente escritura, y el panel casi nunca escribe; su sesión quedó "idle in transaction" casi 4 min. Al reconstruir el bot, el `ALTER TABLE metricas ADD COLUMN IF NOT EXISTS` del esquema pedía un candado ACCESS EXCLUSIVE (aunque la columna ya existiera) y esperó para siempre (`wait_event_type = Lock`); solo se liberó reiniciando el panel. **Corrección** (`app/adapters/db_postgres.py`): toda lectura pasa por `_tx` y cierra su transacción; el ALTER se ejecuta solo si `information_schema.columns` dice que falta la columna (lista `MIGRATIONS`, dentro del mismo candado consultivo); y la creación del esquema usa `lock_timeout = 10s`, así un bloqueo futuro falla con "lock timeout" en el log en vez de colgar el arranque. Medido en Docker con el mismo procedimiento (leer el panel y reconstruir el bot): con `main` (`1a3e368`) la sesión del panel quedó "idle in transaction" y el bot siguió sin "Application started" a los 106 s, con su `CREATE TABLE` esperando un candado (`Lock`) hasta que se reinició el panel; con la corrección la sesión queda "idle" y el bot arranca en 14 s. | RNF-FI-01, RNF-FI-03 | `test_repository_postgres.py` (4 nuevas, en Docker contra una base de prueba aparte): contra `main` fallan 3, una con "el segundo repositorio se quedó esperando el candado (más de 15 s)"; con la corrección pasan las 8 |
 
@@ -53,7 +53,7 @@ cifrado, monitoreo).
 | ✅ **Resuelto el 2026-10-24**. El tope de espera total (≤ 90 s) podía excederse: `FallbackLLM.chat` reiniciaba el presupuesto de 80 s en cada llamada y el pipeline hace hasta 2; además la fecha límite solo se revisaba antes de cada intento, y un intento podía durar `LLM_TIMEOUT` (25 s) completo después de ella. **Corrección**: `RagPipeline.answer` fija una sola fecha límite (`LLM_TOTAL_BUDGET`, 80 s) y la pasa a los 2 intentos; `FallbackLLM.chat(deadline=)` la respeta en todos los proveedores, y `OpenAICompatLLM.chat` recorta el timeout de cada petición y cada espera entre reintentos al tiempo restante. **Medido** con reloj simulado, 3 proveedores y `LLM_TIMEOUT`=25 s: si ninguno contesta, antes 104 s y después 80 s; si el 1.er intento llega a los 77 s con una respuesta inválida y en el 2.º nadie contesta, antes 181 s (el peor caso teórico rondaba 207 s) y después 80 s. Pruebas con reloj simulado: `test_llm.py` (4 nuevas; p. ej. 3 proveedores lentos terminan en ≤ 80 s en vez de > 3 min) y `test_pipeline.py::test_los_dos_intentos_comparten_un_solo_tope`. Nota: el timeout de httpx es por operación (conectar, leer), no por petición completa; con las respuestas no-streaming del LLM, en la práctica equivale | RNF-FI-02 |
 | ✅ **Resuelto el 2026-10-24**. Bot de Telegram sin pruebas (indicador de escritura, calificación, errores). `test_telegram_bot.py` pasa de 3 a 13 pruebas, con updates simulados (`Update.de_json`) y un bot falso, sin red: el indicador "escribiendo…" se envía antes de la respuesta, se renueva mientras el pipeline trabaja y se detiene al responder o al fallar; botones 1-5 solo en respuestas (no en derivaciones); calificación registrada y botones retirados; calificación fallida o `callback_data` mal formado avisan sin tronar; error del servicio con mensaje al estudiante; HTML rechazado se reenvía en texto plano | HU-02 CA-03 |
 | "Precisión" = % respondidas, sin verificar que sean correctas con consultas de la coordinadora | RF-RN-03 |
-| Resumen del panel sin filtro de fechas (sí en CSV y API) | HU-09 CA-02, HU-13 CA-02 |
+| ✅ **Resuelto el 2026-10-26** (rama `reportes-coordinadora`). Resumen del panel sin filtro de fechas (sí en CSV y API). **Corrección**: la sección "Reportes" del panel filtra por fechas en hora de Tuxtla y agrupa por semana, mes o ciclo (ver N10) | HU-09 CA-02, HU-13 CA-02 |
 
 Dos tareas ya propuestas cubren varios de estos: "Registro de accesos, avisos por correo y
 tiempo de búsqueda" y "Respuestas largas, tope de 90 s y pruebas del bot" (las dos, resueltas el 2026-10-24).
@@ -141,7 +141,7 @@ arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 
 | Código | Requisito | Estado | Implementación | Pruebas / evidencia | Falta |
 |---|---|---|---|---|---|
-| RF-C-01 | Identificar intención y entidades (inscripción, baja, residencia, servicio social, titulación) | 🟡 | Reglas por tema en `app/rag/query_expansion.py`; reglas de alcance en `app/rag/guards.py` | `test_query_expansion.py` (8) | Solo 4 temas, sin extracción de entidades (N11). El protocolo acepta "sin módulo separado" |
+| RF-C-01 | Identificar intención y entidades (inscripción, baja, residencia, servicio social, titulación) | 🟡 | Expansión por tema y `classify_topic` (9 temas, guardado en `metricas.tema`) en `app/rag/query_expansion.py`; reglas de alcance en `app/rag/guards.py` | `test_query_expansion.py` (8), `test_topics.py` (27; 62/62 en `retrieval_cases.jsonl`) | Sin extracción de entidades; inscripción va dentro de "plan de estudios" (N11). El protocolo acepta "sin módulo separado" |
 | RF-C-02 | Respuesta del LLM con consulta, historial y fragmentos; temperatura 0.3 | ✅ | `RagPipeline.answer`, `SYSTEM_PROMPT`; `LLM_TEMPERATURE=0.3` | `test_pipeline.py::test_answered_with_sources_and_prompt_shape`, `test_history_is_included_and_trimmed` | — |
 | RF-C-03 | Validar (fundamentada, tono institucional) y regenerar | ✅ | `RagPipeline.validate` | `test_pipeline.py::test_invented_figure_fails_validation_then_regenerates`, `test_ungrounded_answer_fails_validation`, `test_lista_recortada_*`, volcado del contexto (B8) | El tono solo se pide en las instrucciones; no se valida |
 | RF-C-04 | Derivar por similitud baja o consulta excepcional; mensaje con instancia y canal | ✅ | `app/rag/messages.py`, `app/rag/guards.py`; `CONTACT_EMAIL=csistemas@tuxtla.tecnm.mx` en `.env` y `.env.example` | `test_pipeline.py::test_low_similarity_derives_without_calling_llm`, `test_out_of_scope_rules_skip_retrieval_and_llm` | — |
@@ -171,7 +171,7 @@ arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 | RNF-SE-02 | No guardar datos sensibles; cifrado en reposo | 🟡 | No se piden datos sensibles; las preguntas de datos personales se derivan | — | Cifrado en reposo (N6) |
 | RNF-SE-03 | HTTPS/TLS; credenciales solo en variables de entorno | 🟡 | `.env` fuera de git; sin credenciales en el historial (revisado); HTTPS hacia Telegram, Groq y SMTP (STARTTLS) | `.gitignore`, `.dockerignore` | HTTPS en el panel (N7) |
 | RNF-SE-04 | 20 casos de inyección neutralizados | ✅ | `app/rag/guards.py`, `RagPipeline.validate`, `app/redteam.py` | `data/redteam_2026-10-22_2346.json` (20/20, LLM real); `test_redteam.py` (16) | — |
-| RNF-EF-01 | 95 % de consultas ≤ 30 s, medido en METRICAS | ✅ | `metricas.tiempo_respuesta_seg` | p95 = 1.69 s en las 10 consultas reales; `data/loadtest_2026-10-22_2332.json` (p95 1.78 s) | Que el sistema reporte el p95 (N13) |
+| RNF-EF-01 | 95 % de consultas ≤ 30 s, medido en METRICAS | ✅ | `metricas.tiempo_respuesta_seg`; p95 en el panel, `/api/metricas` y el CSV del reporte (`app/reports.py`) | p95 = 2.00 s en las 17 consultas reales (calculado por el sistema, N13); `data/loadtest_2026-10-22_2332.json` (p95 1.78 s); `test_reports.py::test_resumen_trae_p95` | — |
 | RNF-EF-02 | 20 concurrentes, promedio ≤ 30 s, sin errores 5xx | ✅ | — | `data/loadtest_2026-10-22_2332.json` (0/20 errores, LLM simulado); `docs/capacidad-y-costos.md` (LLM real: 6.96 s, 0 errores) | Con Groq gratis la mayoría se deriva por el límite (429) |
 | RNF-EF-03 | Búsqueda vectorial ≤ 2 s en el 99 %, índice en RAM, registrado en logs | ✅ | FAISS `IndexFlatIP` en memoria; tiempo en el log (`rag: búsqueda: ...`) y en `metricas.tiempo_busqueda_seg` | `test_repository.py::test_record_metric_guarda_el_tiempo_de_busqueda`; medido en el contenedor: p99 28.7 ms (186 búsquedas) | — |
 | RNF-PO-01 | Despliegue en EC2 solo con Dockerfile y docker-compose.yml | 🟡 | `Dockerfile`, `docker-compose.yml` (db, bot, admin) | Arranque verificado en Docker local | EC2 (N4) |
@@ -198,7 +198,7 @@ arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 | | CA-02 | Respuestas coherentes | ✅ | `search_query` (`app/rag/query_expansion.py`); `test_pipeline.py::test_seguimiento_busca_con_la_pregunta_anterior`, `test_pregunta_independiente_no_mezcla_el_historial`, `test_seguimiento_encadenado_conserva_el_tema`; en el contenedor 7/7 seguimientos con el fragmento correcto y respuestas correctas del LLM real a "¿Y cuántas horas son?" y "¿Y si lo repruebo?" | — (N1 resuelto) |
 | | CA-03 | Sesión expirada abre una nueva | ✅ | `test_repository.py::test_conversation_reused_within_timeout_new_session_after` | — |
 | | CA-04 | Historial en el contexto del LLM | ✅ | `test_pipeline.py::test_history_is_included_and_trimmed` | — |
-| HU-05 Intención y entidades | CA-01 | Clasifica los 5 tipos | ❌ | Reglas parciales en `app/rag/query_expansion.py` | N11 |
+| HU-05 Intención y entidades | CA-01 | Clasifica los 5 tipos | 🟡 | `classify_topic` (`app/rag/query_expansion.py`): baja, residencia, servicio social y titulación con tema propio; inscripción dentro de "plan de estudios"; `test_topics.py` | N11 |
 | | CA-02 | Entidades disponibles para RAG | 🟡 | La expansión aporta vocabulario del tema | Entidades explícitas |
 | | CA-03 | Fuera de dominio deriva | ✅ | Umbral, `guards.py`, NO_INFO; `test_pipeline.py::test_low_similarity_derives_without_calling_llm` | — |
 | | CA-04 | PLN añade ≤ 5 s | ✅ | Reglas locales (milisegundos) | — |
@@ -215,9 +215,9 @@ arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 | | CA-03 | Deriva por similitud baja o fuera de dominio | ✅ | `test_pipeline.py::test_low_similarity_derives_without_calling_llm`, `test_out_of_scope_rules_skip_retrieval_and_llm` | — |
 | | CA-04 | Registro con indicador de derivación | ✅ | `test_repository.py::test_record_metric_derived_stores_reason_and_no_provider` | — |
 | HU-09 Registrar y consultar métricas | CA-01 | Registro automático | ✅ | `test_service.py::test_handle_message_persists_and_returns_metric_id` | — |
-| | CA-02 | Reportes filtrables por periodo | 🟡 | CSV y `/api/metricas`; `test_metrics_export.py::test_filtro_por_dia_usa_la_hora_de_tuxtla` | Filtro en el resumen del panel |
+| | CA-02 | Reportes filtrables por periodo | ✅ | Sección "Reportes" del panel, CSV y `/api/metricas`; `test_reports.py::test_filtro_por_fechas_en_hora_local`, `test_panel_con_fechas_vacias_y_periodo_sin_datos`, `test_metrics_export.py::test_filtro_por_dia_usa_la_hora_de_tuxtla` | — |
 | | CA-03 | Tasa de derivación visible | ✅ | Tarjeta en `app/templates/panel.html`; `test_web_admin.py::test_panel_loads_with_correct_credentials` | — |
-| | CA-04 | Último reporte si no hay datos | ❌ | — | N10 |
+| | CA-04 | Último reporte si no hay datos | ✅ | `build_report` (`app/reports.py`): "Último reporte disponible" en el panel; `test_reports.py::test_periodo_vacio_muestra_el_ultimo_reporte_disponible` | — (N10) |
 | HU-10 Gestionar sesiones | CA-01 | Sesión nueva al primer mensaje | ✅ | `test_repository.py::test_conversation_without_prior_messages_reused` | — |
 | | CA-02 | Mensajes con el mismo id | ✅ | `test_service.py::test_handle_message_reuses_user_and_session_across_calls` | — |
 | | CA-03 | Cierre por inactividad configurable | ✅ | `SESSION_TIMEOUT_MINUTES` | — |
@@ -230,19 +230,19 @@ arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 | | CA-02 | Sin instalar nada | ✅ | Telegram Web | — |
 | | CA-03 | 24/7 | ❌ | — | N4 |
 | | CA-04 | < 30 s | ✅ | RNF-EF-01 | — |
-| HU-13 Reportes de desempeño | CA-01 | Total, precisión, tiempo, derivación y tipos más frecuentes | 🟡 | Panel y CSV (todo menos tipos de consulta) | Tipos de consulta (N9) |
-| | CA-02 | Filtro por fechas | 🟡 | CSV y API | Filtro en el panel |
+| HU-13 Reportes de desempeño | CA-01 | Total, precisión, tiempo, derivación y tipos más frecuentes | ✅ | Panel (tarjetas y sección "Reportes" con tipos de consulta y p95) y CSV; `test_reports.py::test_tipos_mas_frecuentes_y_temas_con_mas_derivaciones`, `test_panel_muestra_los_reportes` | — (N9) |
+| | CA-02 | Filtro por fechas | ✅ | Panel (hora de Tuxtla, campos vacíos = sin fecha), CSV y API; `test_reports.py::test_filtro_por_fechas_en_hora_local` | — |
 | | CA-03 | Precisión = % resueltas sin derivación | ✅ | `precision_rate`; `test_repository.py::test_metrics_summary_rates_and_reasons` | (Ver RF-RN-03: "correctamente") |
-| | CA-04 | Exportable | ✅ | `/metricas/exportar.csv`; `test_metrics_export.py` (15) | — |
+| | CA-04 | Exportable | ✅ | `/metricas/exportar.csv` (con "Tema") y `/reportes/exportar.csv` (por periodo, con promedio y p95); `test_metrics_export.py` (15), `test_reports.py::test_csv_del_reporte`, `test_descarga_del_reporte` | — |
 | HU-14 Actualizar la base de conocimiento | CA-01 | PDF y DOCX | ✅ | `app/rag/loaders.py`; `test_store_kb.py::test_ingest_docx` | — |
 | | CA-02 | Fragmenta y vectoriza solo | ✅ | `test_admin_service.py::test_upload_new_document_indexes_and_syncs_to_db` | — |
 | | CA-03 | Índice se recarga de inmediato | ✅ | `app/kb_watcher.py`; `test_kb_watcher.py` (5) | — |
 | | CA-04 | Error con nombre de archivo | ✅ | `test_web_admin.py::test_upload_unsupported_extension_shows_error_and_is_not_indexed` | — |
 | | CA-05 | Sin tocar el código | ✅ | Panel web | — |
 | HU-15 Desempeño histórico | CA-01 | Métricas desde el despliegue | ✅ | Todas quedan en `metricas`; CSV sin fechas = todo | — |
-| | CA-02 | Agrupadas por semana, mes o ciclo | ❌ | — | N10 |
-| | CA-03 | Tipos más frecuentes y áreas con más derivación | ❌ | Solo motivos de derivación | N9 |
-| | CA-04 | Indicar periodo mínimo si faltan datos | ❌ | — | N10 |
+| | CA-02 | Agrupadas por semana, mes o ciclo | ✅ | `period_of` y `SCHOOL_CYCLES` (`app/reports.py`); `test_reports.py::test_periodos`, `test_cortes_en_hora_de_tuxtla` | — (N10) |
+| | CA-03 | Tipos más frecuentes y áreas con más derivación | ✅ | Temas en `metricas.tema`; tablas del panel y del CSV del reporte; `test_reports.py::test_tipos_mas_frecuentes_y_temas_con_mas_derivaciones` | — (N9) |
+| | CA-04 | Indicar periodo mínimo si faltan datos | ✅ | `REPORTES_MIN_CONSULTAS` (20); aviso con el periodo mínimo necesario; `test_reports.py::test_periodo_insuficiente_dice_el_periodo_minimo`, `test_ningun_periodo_alcanza_el_minimo` | — (N10) |
 
 ## 9. Casos de uso
 
@@ -254,14 +254,14 @@ arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 | UC-04 | Conversación contextual | ✅ | Historial al LLM y, en preguntas de seguimiento, a la búsqueda (`search_query`) |
 | UC-05 | Orientar a área responsable | ✅ | `app/rag/messages.py` con `CONTACT_EMAIL` y horario |
 | UC-06 | Notificar respuesta | ✅ | Respuesta en Telegram con HTML y calificación |
-| UC-07 | Procesar con PLN | 🟡 | Reglas parciales (N11) |
+| UC-07 | Procesar con PLN | 🟡 | Reglas por tema: expansión de la búsqueda y `classify_topic` (9 temas); sin entidades (N11) |
 | UC-08 | Buscar en FAISS | ✅ | `app/adapters/vectorstore_faiss.py`, `RagPipeline.retrieve` |
 | UC-09 | Generar respuesta (LLM) | ✅ | `RagPipeline.answer`, `FallbackLLM` |
 | UC-10 | Registrar interacciones en PostgreSQL | ✅ | `app/adapters/db_postgres.py` (pruebas en Docker 20/20) |
 | UC-11 | Gestionar sesión | ✅ | `get_or_create_conversation` |
 | UC-12 | Escalar a coordinadora | 🟡 | `app/notify.py` (Gmail, en segundo plano, registro en `avisos`); falta la prueba de entrega real |
 | UC-13 | Validar respuesta | ✅ | `RagPipeline.validate` |
-| UC-14 | Consultar métricas | 🟡 | Panel y CSV (sin tipos de consulta ni agrupación) |
+| UC-14 | Consultar métricas | ✅ | Panel (resumen y "Reportes" por semana, mes o ciclo, con tipos de consulta, temas con más derivaciones y p95) y dos CSV |
 | UC-15 | Actualizar base FAISS | ✅ | Panel + `KBWatcher` |
 
 ## 10. Evidencia en el repositorio
@@ -271,7 +271,7 @@ arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 | `data/redteam_2026-10-22_2346.json` | RNF-SE-04: 20/20 con LLM real, 0 inconclusos |
 | `data/redteam_2026-10-22_2328.json` | Corrida previa (19/20, falla B8) |
 | `data/loadtest_2026-10-22_2332.json` | RNF-EF-01/02: 20 usuarios, base completa, p95 1.78 s, 0 errores (LLM simulado) |
-| `data/retrieval_cases.jsonl` + `tests/test_retrieval_real.py` | RF-I-03: 54/54 preguntas con el fragmento correcto en el top 5 |
+| `data/retrieval_cases.jsonl` + `tests/test_retrieval_real.py` | RF-I-03: 54/54 preguntas con el fragmento correcto en el top 5; con `tests/test_topics.py`, 62/62 temas bien clasificados (N11) |
 | `docs/capacidad-y-costos.md` | RNF-EF-02 con LLM real y límites del plan gratuito de Groq |
-| Tabla `metricas` (base real) | RNF-EF-01: 10 consultas, prom. 0.96 s, p95 1.69 s, máx. 2.0 s |
-| Suite de pruebas | 354 aprobadas, 13 omitidas sin PostgreSQL (`test_repository_postgres.py` 13/13 en Docker con PostgreSQL) |
+| Tabla `metricas` (base real) | RNF-EF-01: 17 consultas, prom. 0.99 s, p95 2.00 s (calculado por el panel, 2026-10-26) |
+| Suite de pruebas | 415 aprobadas, 15 omitidas sin PostgreSQL (`test_repository_postgres.py` 15/15 en Docker con PostgreSQL) |

@@ -1,26 +1,26 @@
-{"q": "¿Qué opciones de titulación existen?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Cuáles son las opciones de titulación integral?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Cómo me puedo titular?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Qué formas hay de titularme?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿De qué maneras me puedo titular?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Qué modalidades de titulación hay?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Cómo me titulo?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Me puedo titular con la residencia profesional?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Puedo titularme con el EGEL del CENEVAL?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Es obligatorio hacer tesis para titularme?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Cuáles son los tipos de proyecto para titulación?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "opciones para titularse en sistemas", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Qué tengo que hacer para obtener mi título?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "quiero titularme, ¿qué opciones tengo?", "answerable": true, "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
-{"q": "¿Qué requisitos necesito para titularme?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
-{"q": "¿Cuáles son los requisitos de titulación?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
-{"q": "¿Qué necesito para titularme?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
-{"q": "¿Qué me piden para titularme?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
-{"q": "requisitos para el título", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
-{"q": "¿Necesito el inglés para titularme?", "answerable": true, "expected_terms": ["el egresado debe cumplir con"]}
-{"q": "¿Qué requisitos necesito para solicitar una baja temporal?", "answerable": true, "expected_doc": "reglamento", "expected_terms": ["baja temporal"]}
-{"q": "¿Cuántas horas debe durar la residencia profesional?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["horas"]}
-{"q": "¿Qué porcentaje de créditos necesito para hacer residencia?", "answerable": true, "expected_doc": "residencia", "expected_terms": ["creditos", "créditos"]}
+{"q": "¿Qué opciones de titulación existen?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Cuáles son las opciones de titulación integral?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Cómo me puedo titular?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Qué formas hay de titularme?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿De qué maneras me puedo titular?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Qué modalidades de titulación hay?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Cómo me titulo?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Me puedo titular con la residencia profesional?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Puedo titularme con el EGEL del CENEVAL?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Es obligatorio hacer tesis para titularme?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Cuáles son los tipos de proyecto para titulación?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "opciones para titularse en sistemas", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Qué tengo que hacer para obtener mi título?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "quiero titularme, ¿qué opciones tengo?", "answerable": true, "tema": "titulación", "expected_doc": "manual_de_lineamientos", "expected_terms": ["tipos de proyectos de titulacion integral"]}
+{"q": "¿Qué requisitos necesito para titularme?", "answerable": true, "tema": "titulación", "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "¿Cuáles son los requisitos de titulación?", "answerable": true, "tema": "titulación", "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "¿Qué necesito para titularme?", "answerable": true, "tema": "titulación", "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "¿Qué me piden para titularme?", "answerable": true, "tema": "titulación", "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "requisitos para el título", "answerable": true, "tema": "titulación", "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "¿Necesito el inglés para titularme?", "answerable": true, "tema": "titulación", "expected_terms": ["el egresado debe cumplir con"]}
+{"q": "¿Qué requisitos necesito para solicitar una baja temporal?", "answerable": true, "tema": "bajas", "expected_doc": "reglamento", "expected_terms": ["baja temporal"]}
+{"q": "¿Cuántas horas debe durar la residencia profesional?", "answerable": true, "tema": "residencia profesional", "expected_doc": "residencia", "expected_terms": ["horas"]}
+{"q": "¿Qué porcentaje de créditos necesito para hacer residencia?", "answerable": true, "tema": "residencia profesional", "expected_doc": "residencia", "expected_terms": ["creditos", "créditos"]}
 {"q": "¿Cuántas horas dura el servicio social?", "answerable": true, "tema": "servicio social", "expected_terms": ["480", "un credito equivale a 50 horas"]}
 {"q": "¿Cuándo puedo empezar mi servicio social?", "answerable": true, "tema": "servicio social", "expected_terms": ["70% de los creditos", "70% de creditos", "prestar su servicio social una vez aprobado"]}
 {"q": "¿Qué porcentaje de créditos necesito para hacer el servicio social?", "answerable": true, "tema": "servicio social", "expected_terms": ["70% de los creditos", "70% de creditos", "prestar su servicio social una vez aprobado"]}

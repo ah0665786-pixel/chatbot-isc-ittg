@@ -38,11 +38,12 @@ def repo(tmp_path):
     r.close()
 
 
-def ask(repo, conv, question, result, when, link=True):
+def ask(repo, conv, question, result, when, link=True, tema=None):
     """Simula lo que hace ConversationService.handle_message."""
     qid = repo.add_message(conv, "usuario", question, now=when)
     aid = repo.add_message(conv, "asistente", result.text, now=when)
-    return repo.record_metric(conv, aid, result, now=when, question_id=qid if link else None)
+    return repo.record_metric(conv, aid, result, now=when, question_id=qid if link else None,
+                              tema=tema)
 
 
 def parse(csv_text):
@@ -112,7 +113,7 @@ def test_rango_inicio_incluido_fin_excluido(repo):
 def test_csv_columnas_etiquetas_y_hora_local(repo, cfg, kb):
     conv = repo.get_or_create_conversation(repo.get_or_create_user("tg-1"))
     mid = ask(repo, conv, "¿Cuántos créditos vale la residencia?", answered(1.234),
-              utc(2026, 10, 22, 17, 30))
+              utc(2026, 10, 22, 17, 30), tema="residencia")
     repo.rate_response(mid, 5)
     did = ask(repo, conv, "¿Me das mi kárdex?", derived(Reason.OUT_OF_SCOPE),
               utc(2026, 10, 22, 18))
@@ -121,8 +122,9 @@ def test_csv_columnas_etiquetas_y_hora_local(repo, cfg, kb):
     rows = parse(AdminService(cfg, kb, repo).export_metrics_csv(tz=TUXTLA))
     assert rows[0] == CSV_HEADER
     assert rows[1] == ["2026-10-22 11:30:00", "¿Cuántos créditos vale la residencia?",
-                       "Respondida", "", "1.23", "5", "0.012", ""]
-    assert rows[2][2:] == ["Derivada",
+                       "Residencia profesional", "Respondida", "", "1.23", "5", "0.012", ""]
+    assert rows[2][2:] == ["Sin clasificar",  # métrica sin tema: anterior a la clasificación
+                           "Derivada",
                            "Fuera de alcance (datos personales o documentos oficiales)",
                            "0.40", "",  # sin calificación: celda vacía
                            "",          # no llegó a buscar: sin tiempo de búsqueda

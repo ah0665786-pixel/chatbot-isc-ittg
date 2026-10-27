@@ -57,7 +57,8 @@ def _report(rt, date_from: str | None, date_to: str | None) -> None:
     print(f"Tasa de precisión  : {s.precision_rate:.1%}  (RF-RN-03: meta >= 90%)")
     print(f"Tasa de derivación : {s.derivation_rate:.1%}")
     if s.avg_response_seconds is not None:
-        print(f"Tiempo prom. resp. : {s.avg_response_seconds:.2f} s  (RNF-EF-01: meta <= 30 s)")
+        print(f"Tiempo prom. resp. : {s.avg_response_seconds:.2f} s")
+        print(f"Tiempo p95         : {s.p95_response_seconds:.2f} s  (RNF-EF-01: meta <= 30 s)")
     if s.by_reason:
         print("Motivos de derivación:")
         for reason, n in sorted(s.by_reason.items(), key=lambda x: -x[1]):

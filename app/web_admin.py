@@ -1,6 +1,6 @@
 """Capa de administración: panel por navegador para que la coordinadora
 cargue documentos y consulte métricas sin usar la consola (RF-I-05,
-RNF-US-04, HU-04, HU-13). FastAPI es solo el adaptador HTTP; toda la lógica
+RNF-US-04, HU-04, HU-09, HU-13, HU-15). FastAPI es solo el adaptador HTTP; toda la lógica
 vive en app.admin_service.AdminService, ya probada por separado.
 
 Uso:
@@ -14,7 +14,7 @@ import os
 import secrets
 from datetime import date
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BeforeValidator
 
@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.admin_service import AdminService
 from app.config import Settings
+from app.reports import GROUPINGS
 from app.rag.knowledge_base import KnowledgeBase
 
 log = logging.getLogger("web_admin")
@@ -34,6 +35,8 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # sin esto FastAPI responde 422. Vacío = sin fecha; una fecha mal escrita sigue
 # dando 422.
 OptionalDate = Annotated[date | None, BeforeValidator(lambda v: v or None)]
+# Agrupación del reporte (HU-15 CA-02); ver app/reports.py
+Grouping = Literal["semana", "mes", "ciclo"]
 security = HTTPBasic()
 MAX_LOGGED_USER = 100  # recorta el usuario intentado antes de guardarlo
 
@@ -73,10 +76,23 @@ def build_app(cfg: Settings, svc: AdminService) -> FastAPI:
         return RedirectResponse("/panel")
 
     @app.get("/panel")
-    def panel(request: Request, msg: str = "", ok: int = 1, user: str = Depends(require_auth)):
+    def panel(request: Request, msg: str = "", ok: int = 1, desde: OptionalDate = None,
+              hasta: OptionalDate = None, agrupacion: Grouping = "mes",
+              user: str = Depends(require_auth)):
+        """Reporte con fechas en hora local, ambos días incluidos; vacías = sin
+        límite, como en la descarga del CSV."""
+        report, report_error = None, None
+        if desde and hasta and desde > hasta:
+            report_error = "La fecha 'desde' es posterior a 'hasta'."
+        else:
+            report = svc.report(desde, hasta, agrupacion)
         return templates.TemplateResponse(request, "panel.html", {
             "documents": svc.list_documents(),
             "metrics": svc.metrics_summary(),
+            "report": report,
+            "report_error": report_error,
+            "filters": {"desde": desde, "hasta": hasta, "agrupacion": agrupacion},
+            "groupings": GROUPINGS,
             "message": msg or None,
             "message_ok": bool(ok),
         })
@@ -116,6 +132,21 @@ def build_app(cfg: Settings, svc: AdminService) -> FastAPI:
         return Response(content.encode("utf-8"), media_type="text/csv; charset=utf-8", headers={
             "Content-Disposition": f'attachment; filename="metricas_{rango}.csv"',
             "Cache-Control": "no-store",  # trae preguntas de estudiantes: sin copias en caché
+        })
+
+    @app.get("/reportes/exportar.csv")
+    def exportar_reporte(desde: OptionalDate = None, hasta: OptionalDate = None,
+                         agrupacion: Grouping = "mes", user: str = Depends(require_auth)):
+        """Reporte agrupado (HU-13 CA-04, HU-15): una fila por periodo con tasa de
+        derivación, tiempo promedio y p95, y la tabla de temas."""
+        if desde and hasta and desde > hasta:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "La fecha 'desde' es posterior a 'hasta'.")
+        content = svc.export_report_csv(svc.report(desde, hasta, agrupacion))
+        rango = f"{desde or 'inicio'}_a_{hasta or date.today()}"
+        return Response(content.encode("utf-8"), media_type="text/csv; charset=utf-8", headers={
+            "Content-Disposition": f'attachment; filename="reporte_{agrupacion}_{rango}.csv"',
+            "Cache-Control": "no-store",
         })
 
     return app

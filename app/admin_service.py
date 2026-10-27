@@ -1,5 +1,5 @@
 """Lógica del panel de administración: cargar documentos y consultar
-métricas (RF-I-05, HU-04, HU-13, HU-14). Separado de la app FastAPI para
+métricas y reportes (RF-I-05, HU-04, HU-09, HU-13, HU-14, HU-15). Separado de la app FastAPI para
 poder probarlo sin levantar un servidor HTTP real — mismo patrón que
 app.service.ConversationService para el bot."""
 from __future__ import annotations
@@ -16,12 +16,14 @@ from app.config import Settings
 from app.domain import REASON_LABELS
 from app.rag.knowledge_base import IngestReport, KnowledgeBase
 from app.rag.loaders import SUPPORTED
+from app.rag.query_expansion import topic_label
+from app.reports import GROUPINGS, Report, build_report, fmt_day
 from app.service import sync_kb_to_repo
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB: generoso para un reglamento de 50 páginas
 
 # ---- exportación de métricas a CSV (HU-04, HU-13) ---------------------------
-CSV_HEADER = ["Fecha", "Pregunta", "Resultado", "Motivo de derivación",
+CSV_HEADER = ["Fecha", "Pregunta", "Tema", "Resultado", "Motivo de derivación",
               "Tiempo de respuesta (s)", "Calificación (1-5)", "Tiempo de búsqueda (s)",
               "Aviso a la coordinadora"]
 RESULT_LABELS = {"answered": "Respondida", "derived": "Derivada"}
@@ -30,6 +32,15 @@ NOTICE_LABELS = {  # tabla avisos (app/notify.py)
     "guardado": "Guardado sin enviar",
     "fallido": "Falló el envío",
 }
+REPORT_COLUMNS = ["Consultas", "Respondidas", "Derivadas", "Tasa de derivación (%)",
+                  "Tiempo promedio (s)", "Tiempo p95 (s)"]
+
+
+def _stats_cells(s) -> list:
+    return [s.total, s.answered, s.derived, _pct(s.derivation_rate),
+            _secs(s.avg_seconds), _secs(s.p95_seconds)]
+
+
 # Una celda que empieza con = + - @ (o tab/retorno) Excel la toma como fórmula
 # al abrir el archivo: la pregunta la escribe el estudiante, así que se neutraliza.
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
@@ -50,6 +61,14 @@ def _notice(estado: str | None, destinatario: str | None, tipo: str | None) -> s
     if tipo == "resumen":
         label += " en el resumen diario"
     return f"{label} ({destinatario})" if destinatario else label
+
+
+def _pct(rate: float) -> str:
+    return f"{rate * 100:.1f}"
+
+
+def _local_tz() -> tzinfo:
+    return datetime.now().astimezone().tzinfo  # TZ del contenedor (Tuxtla)
 
 
 def _utc_bound(day: date, tz: tzinfo) -> str:
@@ -144,7 +163,7 @@ class AdminService:
         hora local, ambos incluidos; la base guarda UTC, así que sin convertir
         una consulta de las 23:00 caería en el día siguiente. Empieza con BOM
         para que Excel muestre bien los acentos."""
-        tz = tz or datetime.now().astimezone().tzinfo  # TZ del contenedor (Tuxtla)
+        tz = tz or _local_tz()
         start = _utc_bound(desde, tz) if desde else None
         end = _utc_bound(hasta + timedelta(days=1), tz) if hasta else None
         out = io.StringIO()
@@ -156,6 +175,7 @@ class AdminService:
             w.writerow([
                 fecha.strftime("%Y-%m-%d %H:%M:%S"),
                 _csv_safe(r.pregunta or ""),
+                topic_label(r.tema),
                 RESULT_LABELS.get(r.resultado, r.resultado),
                 REASON_LABELS.get(r.motivo_derivacion, r.motivo_derivacion or ""),
                 _secs(r.tiempo_respuesta_seg),
@@ -163,4 +183,41 @@ class AdminService:
                 _secs(r.tiempo_busqueda_seg, 3),  # la búsqueda tarda milisegundos
                 _notice(r.aviso, r.aviso_destinatario, r.aviso_tipo),
             ])
+        return out.getvalue()
+
+    def report(self, desde: date | None = None, hasta: date | None = None,
+               agrupacion: str = "mes", tz: tzinfo | None = None,
+               today: date | None = None) -> Report:
+        """Reporte de la coordinadora (HU-09, HU-13, HU-15). desde/hasta: días en
+        hora local, ambos incluidos, como en el CSV. Se piden también las
+        consultas anteriores a `desde`: con ellas se calcula el periodo mínimo
+        necesario y el último reporte disponible cuando el periodo está vacío."""
+        tz = tz or _local_tz()
+        end = _utc_bound(hasta + timedelta(days=1), tz) if hasta else None
+        return build_report(self.repo.metric_rows(None, end), desde, hasta, agrupacion, tz,
+                            self.cfg.reportes_min_consultas, today)
+
+    def export_report_csv(self, report: Report) -> str:
+        """El reporte agrupado en CSV (HU-13 CA-04): una fila por periodo con
+        tiempo promedio y p95, el total y la tabla de temas. Mismas protecciones
+        que export_metrics_csv: BOM para Excel y celdas de texto neutralizadas."""
+        out = io.StringIO()
+        out.write("﻿")
+        w = csv.writer(out, lineterminator="\r\n")
+        w.writerow([GROUPINGS[report.grouping], "Desde", "Hasta", *REPORT_COLUMNS,
+                    "Tema más frecuente", f"Datos suficientes (mín. {report.min_queries})"])
+        for g in report.groups:
+            w.writerow([_csv_safe(g.period.label), fmt_day(g.period.start), fmt_day(g.period.end),
+                        *_stats_cells(g.stats), _csv_safe(g.stats.top_topic),
+                        "Sí" if g.enough else "No"])
+        w.writerow(["Total", fmt_day(report.desde) if report.desde else "",
+                    fmt_day(report.hasta) if report.hasta else "", *_stats_cells(report.totals),
+                    _csv_safe(report.totals.top_topic),
+                    "No" if report.insufficient else "Sí"])
+        if report.notice:
+            w.writerow([]); w.writerow(["Aviso", _csv_safe(report.notice)])
+        w.writerow([])
+        w.writerow(["Tema", "Consultas", "Derivadas", "Tasa de derivación (%)"])
+        for t in report.topics:
+            w.writerow([_csv_safe(t.label), t.total, t.derived, _pct(t.derivation_rate)])
         return out.getvalue()

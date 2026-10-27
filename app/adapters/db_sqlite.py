@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Iterator
 
 from app.domain import Outcome, RagResult
+from app.reports import percentile
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS usuarios (
@@ -139,6 +140,7 @@ class MetricsSummary:
     precision_rate: float           # RF-RN-03: 1 - tasa_derivacion
     avg_response_seconds: float | None
     by_reason: dict[str, int]       # HU-08/HU-11: motivos de derivación
+    p95_response_seconds: float | None = None  # RNF-EF-01: 95 % de consultas <= 30 s
 
 
 @dataclass
@@ -154,6 +156,7 @@ class MetricRow:
     aviso: str | None = None              # estado del aviso: enviado/guardado/fallido
     aviso_destinatario: str | None = None
     aviso_tipo: str | None = None         # inmediato | resumen
+    tema: str | None = None               # None = consulta anterior a la clasificación
 
 
 @dataclass
@@ -175,10 +178,14 @@ class DerivationRow:
 QUESTION_COLUMN = "id_mensaje_usuario"
 # Tiempo de la búsqueda vectorial (RNF-EF-03); NULL si la consulta no llegó a buscar.
 SEARCH_TIME_COLUMN = "tiempo_busqueda_seg"
+# Tema de la consulta (HU-13, HU-15; ver query_expansion.classify_topic). Las
+# métricas anteriores quedan en NULL ("Sin clasificar"): no se reclasifican.
+TOPIC_COLUMN = "tema"
 # Columnas agregadas después de crear su tabla: (tabla, columna, definición para ADD COLUMN)
 COLUMN_MIGRATIONS = [
     ("metricas", QUESTION_COLUMN, "TEXT REFERENCES mensajes(id_mensaje) ON DELETE SET NULL"),
     ("metricas", SEARCH_TIME_COLUMN, "REAL"),
+    ("metricas", TOPIC_COLUMN, "TEXT"),
     ("avisos", "tipo_aviso", "TEXT NOT NULL DEFAULT 'inmediato'"),
     ("avisos", "fecha_resumen", "TEXT"),
 ]
@@ -235,7 +242,7 @@ def export_query(start: str | None, end: str | None, ph: str) -> tuple[str, list
         f"m.calificacion_usuario AS calificacion, m.{SEARCH_TIME_COLUMN}, "
         f"{_last_notice('estado')} AS aviso, "
         f"{_last_notice('destinatario')} AS aviso_destinatario, "
-        f"{_last_notice('tipo_aviso')} AS aviso_tipo "
+        f"{_last_notice('tipo_aviso')} AS aviso_tipo, m.{TOPIC_COLUMN} "
         f"FROM metricas m LEFT JOIN mensajes q ON q.id_mensaje = m.{QUESTION_COLUMN} "
         f"{clause} ORDER BY m.timestamp")
     return sql, params
@@ -345,21 +352,23 @@ class SqliteRepository:
     # ---- métricas (RF-I-04, HU-04, HU-07, HU-08, HU-11, HU-13) ---------------
     def record_metric(self, conversation_id: str, message_id: str | None,
                       result: RagResult, now: datetime | None = None,
-                      question_id: str | None = None) -> str:
-        """message_id = respuesta del asistente; question_id = mensaje del estudiante."""
+                      question_id: str | None = None, tema: str | None = None) -> str:
+        """message_id = respuesta del asistente; question_id = mensaje del estudiante;
+        tema = clave de query_expansion.TOPIC_LABELS (HU-13, HU-15)."""
         mid = _uuid()
         with self._tx() as c:
             c.execute(
                 "INSERT INTO metricas(id_metrica, id_conversacion, id_mensaje, timestamp, "
                 "tiempo_respuesta_seg, fragmentos_recuperados, similitud_maxima, resultado, "
                 f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}, "
-                f"{SEARCH_TIME_COLUMN}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                f"{SEARCH_TIME_COLUMN}, {TOPIC_COLUMN}) "
+                f"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (mid, conversation_id, message_id, _iso(_now(now)),
                  result.timings.get("total"), len(result.hits), result.max_score,
                  result.outcome.value,
                  result.reason.value if result.outcome is Outcome.DERIVED else None,
                  result.attempts, result.provider or None, result.model or None,
-                 question_id, result.timings.get("retrieval")))
+                 question_id, result.timings.get("retrieval"), tema))
             for i, h in enumerate(result.hits):
                 c.execute(
                     "INSERT INTO metricas_fragmentos(id_metrica, posicion, doc_id, "
@@ -480,4 +489,5 @@ class SqliteRepository:
             precision_rate=(answered / total) if total else 0.0,
             avg_response_seconds=(sum(times) / len(times)) if times else None,
             by_reason=by_reason,
+            p95_response_seconds=percentile(times),
         )

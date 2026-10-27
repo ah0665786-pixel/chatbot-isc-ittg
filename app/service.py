@@ -14,6 +14,7 @@ from app.domain import Outcome, RagResult, Reason
 from app.rag.messages import derivation_message
 from app.rag.knowledge_base import KnowledgeBase
 from app.rag.pipeline import RagPipeline
+from app.rag.query_expansion import classify_topic
 
 
 def sync_kb_to_repo(kb: KnowledgeBase, repo: SqliteRepository) -> None:
@@ -64,8 +65,11 @@ class ConversationService:
                 result.text = f"{result.text}\n\n{notice}"
 
         message_id = self.repo.add_message(conv_id, "asistente", result.text)
+        # Tema para los reportes (HU-13, HU-15): en una pregunta de seguimiento
+        # sale de las preguntas previas, con el mismo historial que la búsqueda.
         metric_id = self.repo.record_metric(conv_id, message_id, result,
-                                            question_id=question_id)
+                                            question_id=question_id,
+                                            tema=classify_topic(text, history))
         if should_notify(result):  # el aviso queda enlazado a esta métrica
             self.notifier.submit(metric_id, external_id, display_name, text, result)
         return result, metric_id

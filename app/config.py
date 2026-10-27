@@ -66,6 +66,14 @@ class Settings:
     # Falla técnica: como máximo un aviso inmediato cada tantos minutos (0 = sin límite)
     avisos_falla_intervalo_min: int = 30
 
+    # Reportes (HU-15 CA-04): consultas mínimas en un periodo para que su tasa de
+    # derivación y su p95 signifiquen algo. 20 porque el p95 necesita al menos 20
+    # tiempos para no ser simplemente el máximo (con 19 o menos, el 95 % de n
+    # redondeado hacia arriba es n). Con 20 la tasa de derivación todavía tiene
+    # un margen amplio (hasta ±22 puntos al 95 % de confianza); por eso el panel
+    # marca los periodos con menos y dice desde qué día habría suficientes.
+    reportes_min_consultas: int = 20
+
     admin_user: str = "coordinadora"
     admin_password: str = ""
     admin_host: str = "127.0.0.1"
@@ -148,6 +156,7 @@ class Settings:
             avisos_falla_intervalo_min=i_("AVISOS_FALLA_INTERVALO_MIN", 30),
             db_path=Path(os.getenv("DB_PATH", "data/app.db")),
             session_timeout_minutes=i_("SESSION_TIMEOUT_MINUTES", 30),
+            reportes_min_consultas=max(i_("REPORTES_MIN_CONSULTAS", 20), 1),
             admin_user=os.getenv("ADMIN_USER", "coordinadora"),
             admin_password=os.getenv("ADMIN_PASSWORD", ""),
             admin_host=os.getenv("ADMIN_HOST", "127.0.0.1"),

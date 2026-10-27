@@ -22,6 +22,12 @@
   button { padding: .45rem 1rem; border: none; border-radius: 5px; background: #2563eb; color: white; cursor: pointer; }
   button:hover { background: #1d4ed8; }
   .hint { color: #7b8794; font-size: .85rem; }
+  .msg.warn { background: #fff4d6; color: #6b4e00; }
+  select { padding: .4rem .5rem; border: 1px solid #cbd2d9; border-radius: 5px; }
+  td.num, th.num { text-align: right; }
+  tr.poco td { color: #7b8794; }
+  h3 { font-size: .98rem; margin: 1.5rem 0 0; }
+  a.btn { padding: .45rem 1rem; border-radius: 5px; background: #e4e7eb; color: #1f2933; text-decoration: none; font-size: .9rem; }
 </style>
 </head>
 <body>
@@ -39,6 +45,7 @@
   <div class="card"><div class="n">{{ "%.1f"|format(metrics.precision_rate * 100) }}%</div><div class="label">Precisión (meta: 90%)</div></div>
   <div class="card"><div class="n">{{ "%.1f"|format(metrics.derivation_rate * 100) }}%</div><div class="label">Tasa de derivación</div></div>
   <div class="card"><div class="n">{{ "%.2fs"|format(metrics.avg_response_seconds) if metrics.avg_response_seconds is not none else "—" }}</div><div class="label">Tiempo prom. resp.</div></div>
+  <div class="card"><div class="n">{{ "%.2fs"|format(metrics.p95_response_seconds) if metrics.p95_response_seconds is not none else "—" }}</div><div class="label">Tiempo p95 (meta: ≤ 30 s)</div></div>
 </div>
 {% if metrics.by_reason %}
 <table>
@@ -53,9 +60,87 @@
   <label>Desde <input type="date" name="desde"></label>
   <label>Hasta <input type="date" name="hasta"></label>
   <button type="submit">Descargar CSV</button>
-  <span class="hint">Una fila por consulta: fecha, pregunta, respondida o derivada, motivo,
+  <span class="hint">Una fila por consulta: fecha, pregunta, tema, respondida o derivada, motivo,
     tiempo de respuesta y calificación. Sin fechas = todas las consultas.</span>
 </form>
+
+<h2 id="reportes">Reportes</h2>
+<form class="upload" method="get" action="/panel#reportes">
+  <label>Desde <input type="date" name="desde" value="{{ filters.desde or '' }}"></label>
+  <label>Hasta <input type="date" name="hasta" value="{{ filters.hasta or '' }}"></label>
+  <label>Agrupar por
+    <select name="agrupacion">
+      {% for key, label in groupings.items() %}
+      <option value="{{ key }}" {{ 'selected' if key == filters.agrupacion }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Ver reporte</button>
+  {% if report %}
+  <a class="btn" href="/reportes/exportar.csv?desde={{ filters.desde or '' }}&amp;hasta={{ filters.hasta or '' }}&amp;agrupacion={{ filters.agrupacion }}">Descargar reporte (CSV)</a>
+  {% endif %}
+</form>
+<p class="hint">Fechas en hora de Tuxtla, ambos días incluidos; sin fechas = desde el inicio.
+Ciclo escolar del TecNM: Enero-Junio, Verano (julio) y Agosto-Diciembre.</p>
+
+{% if report_error %}
+<div class="msg error">{{ report_error }}</div>
+{% elif report %}
+{% if report.notice %}<div class="msg warn">{{ report.notice }}</div>{% endif %}
+{% set shown = report.last_available if report.last_available else none %}
+{% if shown %}
+<h3>Último reporte disponible: {{ shown.period.label }}</h3>
+<div class="cards">
+  <div class="card"><div class="n">{{ shown.stats.total }}</div><div class="label">Consultas</div></div>
+  <div class="card"><div class="n">{{ "%.1f"|format(shown.stats.derivation_rate * 100) }}%</div><div class="label">Tasa de derivación</div></div>
+  <div class="card"><div class="n">{{ "%.2fs"|format(shown.stats.avg_seconds) if shown.stats.avg_seconds is not none else "—" }}</div><div class="label">Tiempo promedio</div></div>
+  <div class="card"><div class="n">{{ "%.2fs"|format(shown.stats.p95_seconds) if shown.stats.p95_seconds is not none else "—" }}</div><div class="label">Tiempo p95</div></div>
+  <div class="card"><div class="n">{{ shown.stats.top_topic or "—" }}</div><div class="label">Tema más frecuente</div></div>
+</div>
+{% elif report.totals.total %}
+<div class="cards">
+  <div class="card"><div class="n">{{ report.totals.total }}</div><div class="label">Consultas en el periodo</div></div>
+  <div class="card"><div class="n">{{ "%.1f"|format(report.totals.derivation_rate * 100) }}%</div><div class="label">Tasa de derivación</div></div>
+  <div class="card"><div class="n">{{ "%.2fs"|format(report.totals.avg_seconds) if report.totals.avg_seconds is not none else "—" }}</div><div class="label">Tiempo promedio</div></div>
+  <div class="card"><div class="n">{{ "%.2fs"|format(report.totals.p95_seconds) if report.totals.p95_seconds is not none else "—" }}</div><div class="label">Tiempo p95 (meta: ≤ 30 s)</div></div>
+</div>
+
+<h3>Tipos de consulta más frecuentes</h3>
+<table>
+  <tr><th>Tema</th><th class="num">Consultas</th><th class="num">% del total</th></tr>
+  {% for t in report.topics %}
+  <tr><td>{{ t.label }}</td><td class="num">{{ t.total }}</td><td class="num">{{ "%.1f"|format(t.total / report.totals.total * 100) }}%</td></tr>
+  {% endfor %}
+</table>
+
+<h3>Temas con más derivaciones</h3>
+<table>
+  <tr><th>Tema</th><th class="num">Derivadas</th><th class="num">Tasa de derivación del tema</th></tr>
+  {% for t in report.derivations %}
+  <tr><td>{{ t.label }}</td><td class="num">{{ t.derived }}</td><td class="num">{{ "%.1f"|format(t.derivation_rate * 100) }}%</td></tr>
+  {% else %}
+  <tr><td colspan="3" class="hint">Ninguna consulta derivada en el periodo.</td></tr>
+  {% endfor %}
+</table>
+
+<h3>Por {{ groupings[report.grouping]|lower }}</h3>
+<table>
+  <tr><th>Periodo</th><th class="num">Consultas</th><th class="num">Derivadas</th><th class="num">Tasa de derivación</th>
+      <th class="num">Tiempo prom.</th><th class="num">p95</th><th>Tema más frecuente</th></tr>
+  {% for g in report.groups %}
+  <tr class="{{ '' if g.enough else 'poco' }}"><td>{{ g.period.label }}{% if not g.enough %} <span class="hint">(pocos datos)</span>{% endif %}</td>
+    <td class="num">{{ g.stats.total }}</td><td class="num">{{ g.stats.derived }}</td>
+    <td class="num">{{ "%.1f"|format(g.stats.derivation_rate * 100) }}%</td>
+    <td class="num">{{ "%.2fs"|format(g.stats.avg_seconds) if g.stats.avg_seconds is not none else "—" }}</td>
+    <td class="num">{{ "%.2fs"|format(g.stats.p95_seconds) if g.stats.p95_seconds is not none else "—" }}</td>
+    <td>{{ g.stats.top_topic }}</td></tr>
+  {% endfor %}
+</table>
+<p class="hint">"Pocos datos": menos de {{ report.min_queries }} consultas en ese periodo; sus porcentajes
+y su p95 cambian mucho con una sola consulta. "Sin clasificar": consultas registradas antes de
+que el sistema guardara el tema.</p>
+{% endif %}
+{% endif %}
 
 <h2>Base de conocimiento</h2>
 <p class="hint">Documentos indexados: {{ documents|length }}</p>

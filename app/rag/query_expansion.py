@@ -133,12 +133,102 @@ def search_query(question: str, history=()) -> str:
     última que sí nombraba su tema (en "¿Y cuántos créditos vale?" -> "¿Y
     cuándo lo empiezo?", el tema sigue siendo el de la pregunta de antes)."""
     if is_follow_up(question):
-        previous: list[str] = []
-        for m in reversed(history or ()):
-            if m.get("role") != "user" or not m.get("content"):
-                continue
-            previous.insert(0, m["content"])
-            if not is_follow_up(m["content"]) or len(previous) == _MAX_PREVIAS:
-                break
-        question = "\n".join([*previous, question])
+        question = "\n".join([*reversed(_previous_questions(history)), question])
     return expand_query(question)
+
+
+def _previous_questions(history) -> list[str]:
+    """Preguntas previas del estudiante, de la más reciente hacia atrás, hasta
+    la última que sí nombraba su tema (o _MAX_PREVIAS)."""
+    previous: list[str] = []
+    for m in reversed(history or ()):
+        if m.get("role") != "user" or not m.get("content"):
+            continue
+        previous.append(m["content"])
+        if not is_follow_up(m["content"]) or len(previous) == _MAX_PREVIAS:
+            break
+    return previous
+
+
+# ---- tema de la consulta (HU-13 CA-01, HU-15 CA-03, RF-C-01) -----------------
+# Cada consulta se guarda con UNO de estos temas para los reportes de la
+# coordinadora (tipos de consulta más frecuentes y temas con más derivaciones).
+# Las consultas registradas antes de esta columna quedan sin tema: el panel y
+# el CSV las muestran como "Sin clasificar".
+TOPIC_LABELS = {
+    "plan_estudios": "Plan de estudios",
+    "residencia": "Residencia profesional",
+    "servicio_social": "Servicio social",
+    "titulacion": "Titulación",
+    "bajas": "Bajas",
+    "traslados": "Traslados",
+    "actividades": "Actividades complementarias",
+    "permisos": "Permisos",
+    "otros": "Otros",
+}
+UNCLASSIFIED_LABEL = "Sin clasificar"
+
+# Orden = prioridad cuando la pregunta nombra varios temas: gana el trámite que
+# el estudiante quiere hacer, no el que menciona de paso. "¿Me puedo titular con
+# la residencia?" es titulación; "¿Puedo hacer residencias si no he liberado el
+# servicio social?" es residencia; "Me dieron de baja definitiva, ¿puedo entrar
+# a otra carrera?" es traslado; "Si me cambio de carrera, ¿me reconocen las
+# materias?" es traslado, no plan de estudios (por eso plan va al final:
+# "materia", "créditos" o "semestre" aparecen en preguntas de todos los temas).
+# Convalidación, equivalencia y cambio de carrera van con traslados: son el
+# mismo trámite de pasar de un plan, carrera o plantel a otro.
+# Inscripción, reinscripción, carga y repetición de materias van con plan de
+# estudios: son el avance por el plan.
+_RESIDENCIA = re.compile(r"\bresiden(cia|cias|te|tes)\b")
+_SERVICIO = re.compile(r"\bservicio social\b")
+_TRASLADOS = re.compile(r"\b(traslad\w*|equivalencia\w*|movilidad|segunda carrera|otra carrera"
+                        r"|cambi\w* de (carrera|plan|tec|tecnologico|instituto|escuela|plantel"
+                        r"|campus))\b")
+_BAJAS = re.compile(r"\bbajas?\b")
+# "falta" sola no: "¿qué me falta para terminar?" no es un permiso.
+_PERMISOS = re.compile(r"\b(permiso\w*|justificante\w*|justific\w*|faltas|faltar a"
+                       r"|inasistencia\w*|ausencia\w*)\b")
+_PLAN = re.compile(r"\b(plan(es)? de estudios?|reticula|materias?|asignaturas?|especialidad\w*"
+                   r"|creditos?|semestres?|carga academica|reinscri\w*|inscri\w*|optativas?"
+                   r"|curso (especial|de verano|de repeticion)|verano|repeticion"
+                   rf"|{_REPROBAR})\b")
+TOPIC_RULES: list[tuple[str, tuple[re.Pattern[str], ...]]] = [
+    ("titulacion", (_TITULACION, re.compile(r"\b(egel|ceneval|tesis|tesina)\b"))),
+    ("residencia", (_RESIDENCIA,)),
+    ("servicio_social", (_SERVICIO,)),
+    ("actividades", (_ACTIVIDADES, re.compile(r"\bcreditos? complementarios?\b"))),
+    ("traslados", (_CONVALIDACION, _TRASLADOS)),
+    ("bajas", (_BAJAS,)),
+    ("permisos", (_PERMISOS,)),
+    ("plan_estudios", (_REPETICION, _PLAN)),
+]
+
+
+def _topic_of(text: str) -> str | None:
+    norm = guards.normalize(text)
+    for topic, patterns in TOPIC_RULES:
+        if any(p.search(norm) for p in patterns):
+            return topic
+    return None
+
+
+def classify_topic(question: str, history=()) -> str:
+    """Tema de la consulta (clave de TOPIC_LABELS). Si la pregunta no nombra
+    tema y es de seguimiento ("¿Y cuántas horas son?"), el tema es el de las
+    preguntas previas del estudiante, igual que hace search_query para buscar.
+    Si nombra uno, gana aunque sea de seguimiento: "¿Y la residencia?" después
+    de una pregunta de servicio social es de residencia. En una de seguimiento
+    no cuentan las palabras genéricas: "¿Y cuántos créditos vale?" sigue siendo
+    de servicio social, aunque "créditos" sola sería de plan de estudios."""
+    if not is_follow_up(question):
+        return _topic_of(question) or "otros"
+    own = " ".join(w for w in re.findall(r"[a-z0-9]+", guards.normalize(question))
+                   if w not in _GENERICAS)
+    topic = (_topic_of(own)
+             or next(filter(None, map(_topic_of, _previous_questions(history))), None)
+             or _topic_of(question))
+    return topic or "otros"
+
+
+def topic_label(topic: str | None) -> str:
+    return TOPIC_LABELS.get(topic, topic) if topic else UNCLASSIFIED_LABEL

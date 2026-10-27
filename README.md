@@ -65,7 +65,11 @@ métricas, mismo pipeline ya probado — Telegram solo es el canal (RNF-PO-03).
    defecto) y la contraseña que pusiste — es autenticación básica del navegador, no hay que
    programar una pantalla de login.
 4. Desde ahí: cargar documentos (PDF/DOCX/TXT/MD, se indexan al subirlos) y ver las
-   métricas (precisión, derivación, tiempo de respuesta) sin tocar la consola.
+   métricas (precisión, derivación, tiempo promedio y p95) sin tocar la consola.
+5. Sección "Reportes": temas más consultados, temas con más derivaciones y tiempos,
+   por semana, mes o ciclo escolar (definido en `app/reports.py`), con descarga en CSV.
+   Si el periodo tiene menos de `REPORTES_MIN_CONSULTAS` consultas (20), avisa y dice
+   desde qué día habría que tomarlo.
 
 Es el mismo `AdminService` que podrías usar por consola; FastAPI solo traduce HTTP, igual
 que Telegram solo traduce mensajes — toda la lógica real vive en un solo lugar y ya está

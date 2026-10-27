@@ -293,3 +293,53 @@ def test_arranque_no_espera_a_una_escritura_abierta(monkeypatch):
     finally:
         holder.rollback()
         holder.close()
+
+
+# ---- tema de la consulta y p95 (HU-13, HU-15, RNF-EF-01; mismo contrato que SQLite) --
+def test_tema_reporte_y_p95():
+    from datetime import date, datetime, timedelta, timezone
+    from app.reports import build_report
+    repo = _fresh_repo()
+    try:
+        cid = repo.get_or_create_conversation(repo.get_or_create_user("12345"))
+        t = datetime(2026, 10, 22, 18, tzinfo=timezone.utc)
+        for secs in range(1, 21):
+            res = RagResult(Outcome.ANSWERED, Reason.NONE, "r", [], 0.9, "g", "m", 1,
+                            {"total": float(secs)}, "ok", [])
+            repo.record_metric(cid, None, res, now=t, tema="titulacion")
+        der = RagResult(Outcome.DERIVED, Reason.OUT_OF_SCOPE, "d", [], 0.5, "", "", 0,
+                        {"total": 0.5}, "x", [])
+        repo.record_metric(cid, None, der, now=t + timedelta(days=30), tema="permisos")
+        repo.record_metric(cid, None, der, now=t + timedelta(days=30))  # sin tema
+        s = repo.metrics_summary()
+        assert s.total == 22 and s.p95_response_seconds == 19.0
+        rows = repo.metric_rows()
+        assert [r.tema for r in rows[-3:]] == ["titulacion", "permisos", None]
+        r = build_report(rows, None, None, "mes", timezone(timedelta(hours=-6)), 20,
+                         today=date(2026, 11, 30))
+        assert [(g.period.label, g.stats.total, g.enough) for g in r.groups] == [
+            ("Octubre 2026", 20, True), ("Noviembre 2026", 2, False)]
+        assert [(t.label, t.derived) for t in r.derivations] == [
+            ("Permisos", 1), ("Sin clasificar", 1)]
+    finally:
+        repo.close()
+
+
+def test_migracion_agrega_la_columna_tema_sin_perder_datos():
+    """Base con el esquema de main (ea9adbf), sin metricas.tema: al arrancar se
+    agrega (solo si falta, con el candado del esquema) y las métricas siguen
+    ahí, sin tema ("Sin clasificar")."""
+    from app.adapters.db_postgres import PostgresRepository
+    repo = _fresh_repo()
+    cid = repo.get_or_create_conversation(repo.get_or_create_user("12345"))
+    repo.record_metric(cid, None, RagResult(Outcome.ANSWERED, Reason.NONE, "r", [], 0.9, "g", "m",
+                                            1, {"total": 1.0}, "ok", []), tema="bajas")
+    with repo._conn, repo._conn.cursor() as c:
+        c.execute("ALTER TABLE metricas DROP COLUMN tema")
+    repo.close()
+    repo = PostgresRepository(DSN)
+    try:
+        [row] = repo.metric_rows()
+        assert row.tema is None and row.tiempo_respuesta_seg == 1.0
+    finally:
+        repo.close()

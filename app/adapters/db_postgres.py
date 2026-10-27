@@ -20,7 +20,8 @@ import psycopg2.extras
 from app.domain import Outcome, RagResult
 from app.adapters.db_sqlite import (  # mismos dataclasses, DDL y consulta de exportación
     COLUMN_MIGRATIONS, FAILED_LOGINS_DDL, NOTICES_DDL, QUESTION_COLUMN, SEARCH_TIME_COLUMN,
-    DerivationRow, MetricRow, MetricsSummary, derivations_query, export_query)
+    TOPIC_COLUMN, DerivationRow, MetricRow, MetricsSummary, derivations_query, export_query)
+from app.reports import percentile
 
 # Mismo esquema que SQLite (ver db_sqlite.py): TEXT para UUID/fechas por
 # portabilidad. ON CONFLICT y CHECK funcionan igual en PostgreSQL.
@@ -254,21 +255,23 @@ class PostgresRepository:
     # ---- métricas (RF-I-04, HU-04, HU-07, HU-08, HU-11, HU-13) ---------------
     def record_metric(self, conversation_id: str, message_id: str | None,
                       result: RagResult, now: datetime | None = None,
-                      question_id: str | None = None) -> str:
-        """message_id = respuesta del asistente; question_id = mensaje del estudiante."""
+                      question_id: str | None = None, tema: str | None = None) -> str:
+        """message_id = respuesta del asistente; question_id = mensaje del estudiante;
+        tema = clave de query_expansion.TOPIC_LABELS (HU-13, HU-15)."""
         mid = _uuid()
         with self._tx() as c:
             c.execute(
                 "INSERT INTO metricas(id_metrica, id_conversacion, id_mensaje, timestamp, "
                 "tiempo_respuesta_seg, fragmentos_recuperados, similitud_maxima, resultado, "
                 f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}, "
-                f"{SEARCH_TIME_COLUMN}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                f"{SEARCH_TIME_COLUMN}, {TOPIC_COLUMN}) "
+                f"VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (mid, conversation_id, message_id, _iso(_now(now)),
                  result.timings.get("total"), len(result.hits), result.max_score,
                  result.outcome.value,
                  result.reason.value if result.outcome is Outcome.DERIVED else None,
                  result.attempts, result.provider or None, result.model or None,
-                 question_id, result.timings.get("retrieval")))
+                 question_id, result.timings.get("retrieval"), tema))
             for i, h in enumerate(result.hits):
                 c.execute(
                     "INSERT INTO metricas_fragmentos(id_metrica, posicion, doc_id, "
@@ -395,4 +398,5 @@ class PostgresRepository:
             precision_rate=(answered / total) if total else 0.0,
             avg_response_seconds=(sum(times) / len(times)) if times else None,
             by_reason=by_reason,
+            p95_response_seconds=percentile(times),
         )
