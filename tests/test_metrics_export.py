@@ -23,7 +23,7 @@ def utc(y, mo, d, h, mi=0, s=0):
 def answered(secs=1.25):
     hit = Hit(Chunk("manual", "Manual.pdf", 0, "texto"), 0.9)
     return RagResult(Outcome.ANSWERED, Reason.NONE, "respuesta", [hit], 0.9, "groq", "m", 1,
-                     {"total": secs}, "ok")
+                     {"total": secs, "retrieval": 0.0123}, "ok")
 
 
 def derived(reason=Reason.NOT_IN_CONTEXT):
@@ -90,8 +90,12 @@ def test_base_existente_recibe_la_columna_nueva_sin_perder_datos(tmp_path):
 
     repo = SqliteRepository(path)  # aquí corre la migración
     cols = {r["name"] for r in repo._conn.execute("PRAGMA table_info(metricas)")}
-    assert "id_mensaje_usuario" in cols
-    assert [r.pregunta for r in repo.metric_rows()] == ["¿Qué es la convalidación?"]
+    assert {"id_mensaje_usuario", "tiempo_busqueda_seg"} <= cols
+    tablas = {r[0] for r in repo._conn.execute("SELECT name FROM sqlite_master")}
+    assert {"avisos", "accesos_fallidos"} <= tablas
+    [row] = repo.metric_rows()
+    assert row.pregunta == "¿Qué es la convalidación?"
+    assert (row.tiempo_busqueda_seg, row.aviso) == (None, None)  # la fila vieja sigue igual
     repo.close()
     SqliteRepository(path).close()  # abrirla otra vez no intenta agregarla de nuevo
 
@@ -110,15 +114,19 @@ def test_csv_columnas_etiquetas_y_hora_local(repo, cfg, kb):
     mid = ask(repo, conv, "¿Cuántos créditos vale la residencia?", answered(1.234),
               utc(2026, 10, 22, 17, 30))
     repo.rate_response(mid, 5)
-    ask(repo, conv, "¿Me das mi kárdex?", derived(Reason.OUT_OF_SCOPE), utc(2026, 10, 22, 18))
+    did = ask(repo, conv, "¿Me das mi kárdex?", derived(Reason.OUT_OF_SCOPE),
+              utc(2026, 10, 22, 18))
+    repo.record_notice(did, "guardado", "vista_previa", "coord@test.local", "x.eml")
 
     rows = parse(AdminService(cfg, kb, repo).export_metrics_csv(tz=TUXTLA))
     assert rows[0] == CSV_HEADER
     assert rows[1] == ["2026-10-22 11:30:00", "¿Cuántos créditos vale la residencia?",
-                       "Respondida", "", "1.23", "5"]
+                       "Respondida", "", "1.23", "5", "0.012", ""]
     assert rows[2][2:] == ["Derivada",
                            "Fuera de alcance (datos personales o documentos oficiales)",
-                           "0.40", ""]  # sin calificación: celda vacía
+                           "0.40", "",  # sin calificación: celda vacía
+                           "",          # no llegó a buscar: sin tiempo de búsqueda
+                           "Guardado sin enviar (coord@test.local)"]
 
 
 def test_filtro_por_dia_usa_la_hora_de_tuxtla(repo, cfg, kb):

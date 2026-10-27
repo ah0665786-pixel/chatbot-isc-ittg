@@ -37,6 +37,18 @@ class Reason(str, Enum):
     TOO_LONG = "too_long"                  # HU-01 CA-04
 
 
+# Reason en palabras de la coordinación (CSV del panel y asunto del aviso por correo)
+REASON_LABELS = {
+    "out_of_scope": "Fuera de alcance (datos personales o documentos oficiales)",
+    "injection": "Intento de manipular al asistente",
+    "low_similarity": "Tema no encontrado en los documentos",
+    "not_in_context": "Sin información suficiente en los documentos",
+    "validation_failed": "Respuesta no verificable contra los documentos",
+    "llm_unavailable": "Servicio de IA no disponible",
+    "too_long": "Pregunta demasiado larga",
+}
+
+
 @dataclass
 class RagResult:
     outcome: Outcome

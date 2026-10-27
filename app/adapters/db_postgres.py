@@ -6,6 +6,7 @@ si no está definida, el sistema sigue usando SQLite por defecto.
 """
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from contextlib import contextmanager
@@ -17,8 +18,9 @@ import psycopg2
 import psycopg2.extras
 
 from app.domain import Outcome, RagResult
-from app.adapters.db_sqlite import (  # mismos dataclasses y consulta de exportación
-    QUESTION_COLUMN, MetricRow, MetricsSummary, export_query)
+from app.adapters.db_sqlite import (  # mismos dataclasses, DDL y consulta de exportación
+    COLUMN_MIGRATIONS, FAILED_LOGINS_DDL, NOTICES_DDL, QUESTION_COLUMN, SEARCH_TIME_COLUMN,
+    DerivationRow, MetricRow, MetricsSummary, derivations_query, export_query)
 
 # Mismo esquema que SQLite (ver db_sqlite.py): TEXT para UUID/fechas por
 # portabilidad. ON CONFLICT y CHECK funcionan igual en PostgreSQL.
@@ -96,9 +98,21 @@ CREATE TABLE IF NOT EXISTS documentos (
 # candado ACCESS EXCLUSIVE aunque la columna ya exista, y esperaría a cualquier
 # transacción abierta sobre la tabla (así se quedó colgado el arranque del bot).
 MIGRATIONS = [
-    ("metricas", QUESTION_COLUMN,
-     f"ALTER TABLE metricas ADD COLUMN {QUESTION_COLUMN} TEXT "
-     "REFERENCES mensajes(id_mensaje) ON DELETE SET NULL"),
+    (table, column, f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    for table, column, definition in COLUMN_MIGRATIONS
+]
+# Tablas nuevas: igual, se crean solo si information_schema dice que faltan
+# (avisos lleva una llave foránea a metricas, y crearla pide un candado sobre
+# metricas aunque la tabla ya exista).
+NEW_TABLES = [("avisos", NOTICES_DDL), ("accesos_fallidos", FAILED_LOGINS_DDL)]
+
+# El esquema original, sentencia por sentencia: (nombre, DDL). Cada tabla e
+# índice se crea solo si to_regclass dice que falta. "CREATE INDEX IF NOT
+# EXISTS" pide un candado SHARE sobre la tabla aunque el índice exista, así que
+# el arranque esperaba a cualquier escritura en curso del otro servicio.
+SCHEMA_OBJECTS = [
+    (re.search(r"IF NOT EXISTS (\w+)", ddl).group(1), ddl.strip())
+    for ddl in SCHEMA.split(";") if ddl.strip()
 ]
 
 # Si al crear el esquema otra sesión tiene tomada una tabla, el arranque falla
@@ -137,7 +151,16 @@ class PostgresRepository:
             # al terminar la transacción) hace que creen el esquema por turnos.
             cur.execute("SET LOCAL lock_timeout = %s", (SCHEMA_LOCK_TIMEOUT,))
             cur.execute("SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_ID,))
-            cur.execute(SCHEMA)
+            for name, ddl in SCHEMA_OBJECTS:  # to_regclass no pide candados
+                cur.execute("SELECT to_regclass(%s) AS oid", (name,))
+                if cur.fetchone()["oid"] is None:
+                    cur.execute(ddl)
+            for table, ddl in NEW_TABLES:
+                cur.execute(
+                    "SELECT 1 FROM information_schema.tables WHERE table_schema = "
+                    "current_schema() AND table_name = %s", (table,))
+                if cur.fetchone() is None:
+                    cur.execute(ddl)
             for table, column, ddl in MIGRATIONS:
                 cur.execute(
                     "SELECT 1 FROM information_schema.columns WHERE table_schema = "
@@ -238,14 +261,14 @@ class PostgresRepository:
             c.execute(
                 "INSERT INTO metricas(id_metrica, id_conversacion, id_mensaje, timestamp, "
                 "tiempo_respuesta_seg, fragmentos_recuperados, similitud_maxima, resultado, "
-                f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}, "
+                f"{SEARCH_TIME_COLUMN}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (mid, conversation_id, message_id, _iso(_now(now)),
                  result.timings.get("total"), len(result.hits), result.max_score,
                  result.outcome.value,
                  result.reason.value if result.outcome is Outcome.DERIVED else None,
                  result.attempts, result.provider or None, result.model or None,
-                 question_id))
+                 question_id, result.timings.get("retrieval")))
             for i, h in enumerate(result.hits):
                 c.execute(
                     "INSERT INTO metricas_fragmentos(id_metrica, posicion, doc_id, "
@@ -259,6 +282,70 @@ class PostgresRepository:
         with self._tx() as c:
             c.execute("UPDATE metricas SET calificacion_usuario=%s WHERE id_metrica=%s",
                      (calificacion, metric_id))
+
+    # ---- avisos a la coordinadora (HU-11 CA-03, UC-12) ----------------------
+    def record_notice(self, metric_id: str | None, estado: str, modo: str,
+                      destinatario: str = "", archivo: str = "", detalle: str = "",
+                      motivo: str | None = None, now: datetime | None = None,
+                      tipo_aviso: str = "inmediato", fecha_resumen: str | None = None) -> str:
+        nid = _uuid()
+        with self._tx() as c:
+            c.execute("INSERT INTO avisos(id_aviso, id_metrica, timestamp, modo, estado, "
+                      "destinatario, archivo, detalle, motivo_derivacion, tipo_aviso, "
+                      "fecha_resumen) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                      (nid, metric_id, _iso(_now(now)), modo, estado, destinatario or None,
+                       archivo or None, detalle or None, motivo, tipo_aviso, fecha_resumen))
+        return nid
+
+    def summary_sent(self, fecha_resumen: str) -> bool:
+        """¿Ya se procesó el resumen de ese día? (evita mandarlo dos veces)."""
+        with self._tx() as c:
+            c.execute("SELECT 1 FROM avisos WHERE tipo_aviso = 'resumen' AND "
+                      "fecha_resumen = %s LIMIT 1", (fecha_resumen,))
+            return c.fetchone() is not None
+
+    def last_notice_at(self, motivos: list[str]) -> str | None:
+        """Hora (ISO UTC) del último aviso inmediato enviado o guardado de esos motivos."""
+        with self._tx() as c:
+            c.execute("SELECT MAX(timestamp) AS t FROM avisos WHERE tipo_aviso = 'inmediato' "
+                      "AND estado IN ('enviado','guardado') AND motivo_derivacion = ANY(%s)",
+                      (list(motivos),))
+            return c.fetchone()["t"]
+
+    def count_derived(self, motivos: list[str], after: str, until: str) -> int:
+        """Consultas derivadas por esos motivos con after < timestamp <= until (ISO UTC)."""
+        with self._tx() as c:
+            c.execute("SELECT COUNT(*) AS n FROM metricas WHERE resultado = 'derived' AND "
+                      "motivo_derivacion = ANY(%s) AND timestamp > %s AND timestamp <= %s",
+                      (list(motivos), after, until))
+            return c.fetchone()["n"]
+
+    def derived_between(self, start: str, end: str) -> list[DerivationRow]:
+        with self._tx() as c:
+            c.execute(derivations_query("%s"), (start, end))
+            return [DerivationRow(**dict(r)) for r in c.fetchall()]
+
+    def notices(self, limit: int = 100) -> list[dict]:
+        """Avisos, el más reciente primero."""
+        with self._tx() as c:
+            c.execute("SELECT * FROM avisos ORDER BY timestamp DESC LIMIT %s", (limit,))
+            return [dict(r) for r in c.fetchall()]
+
+    # ---- accesos no autorizados al panel (HU-01 CA-03, RNF-SE-01) ------------
+    def record_failed_login(self, usuario: str, ip: str | None, ruta: str,
+                            now: datetime | None = None) -> str:
+        aid = _uuid()
+        with self._tx() as c:
+            c.execute("INSERT INTO accesos_fallidos(id_acceso, timestamp, usuario, ip, ruta) "
+                      "VALUES (%s,%s,%s,%s,%s)", (aid, _iso(_now(now)), usuario, ip, ruta))
+        return aid
+
+    def failed_logins(self, limit: int = 100) -> list[dict]:
+        """Intentos fallidos, el más reciente primero."""
+        with self._tx() as c:
+            c.execute("SELECT * FROM accesos_fallidos ORDER BY timestamp DESC LIMIT %s",
+                      (limit,))
+            return [dict(r) for r in c.fetchall()]
 
     # ---- documentos (espejo del manifiesto de la base de conocimiento) ------
     def sync_documents(self, docs: list[dict]) -> None:

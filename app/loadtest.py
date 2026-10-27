@@ -97,6 +97,12 @@ class RequestResult:
     error: str = ""
 
 
+def _sin_avisos(cfg: Settings) -> Settings:
+    """La prueba de carga deriva consultas a propósito: sin esto mandaría (o
+    guardaría) un aviso a la coordinadora por cada una."""
+    return replace(cfg, avisos_modo="desactivado")
+
+
 def _sandbox_service(cfg: Settings, llm_min_s: float, llm_max_s: float) -> ConversationService:
     """Entorno aislado: ni la BD ni la base de conocimiento son las reales.
     Se limpia antes de cada corrida para que los resultados sean
@@ -123,7 +129,7 @@ def _sandbox_service(cfg: Settings, llm_min_s: float, llm_max_s: float) -> Conve
     kb.save()
     repo = SqliteRepository(test_cfg.db_path, test_cfg.session_timeout_minutes)
     pipeline = RagPipeline(test_cfg, emb, kb.store, FakeFastLLM(llm_min_s, llm_max_s))
-    return ConversationService(test_cfg, repo, pipeline)
+    return ConversationService(_sin_avisos(test_cfg), repo, pipeline)
 
 
 def _isolated_repo(cfg: Settings):
@@ -170,13 +176,13 @@ def _real_kb_service(cfg: Settings, llm_min_s: float, llm_max_s: float) -> Conve
     emb = build_embedder(cfg)
     kb = KnowledgeBase.open(cfg, emb)
     pipeline = RagPipeline(cfg, emb, kb.store, FakeGroundedLLM(llm_min_s, llm_max_s))
-    return ConversationService(cfg, _isolated_repo(cfg), pipeline)
+    return ConversationService(_sin_avisos(cfg), _isolated_repo(cfg), pipeline)
 
 
 def _real_service(cfg: Settings) -> ConversationService:
     """Entorno real: tu base de conocimiento, tu BD, tu cadena de proveedores."""
     rt = build_runtime(cfg)
-    return ConversationService(cfg, rt.repo, rt.pipeline)
+    return ConversationService(_sin_avisos(cfg), rt.repo, rt.pipeline)
 
 
 def _one_user(svc: ConversationService, user_id: str, n_messages: int,

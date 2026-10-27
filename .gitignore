@@ -12,3 +12,5 @@ data/kb/*.faiss
 data/kb/chunks.jsonl
 data/kb/manifest.json
 data/kb/meta.json
+# Avisos a la coordinadora guardados en vista previa (traen preguntas y datos de estudiantes)
+data/outbox/

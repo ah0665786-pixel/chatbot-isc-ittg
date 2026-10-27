@@ -116,3 +116,53 @@ def test_api_metricas_json(client):
     assert r.status_code == 200
     body = r.json()
     assert body["total"] == 0 and "precision_rate" in body
+
+
+# ---- accesos no autorizados (HU-01 CA-03, RNF-SE-01) --------------------------
+def _repo(client):
+    return client.app.state.svc.repo
+
+
+def test_intento_fallido_queda_registrado_sin_la_contrasena(client, caplog):
+    import logging
+    with caplog.at_level(logging.WARNING, "web_admin"):
+        r = client.get("/panel", headers=auth_headers(user="intruso", password="adivina-XYZ"))
+    assert r.status_code == 401
+    [row] = _repo(client).failed_logins()
+    assert (row["usuario"], row["ip"], row["ruta"]) == ("intruso", "testclient", "/panel")
+    assert row["timestamp"]  # fecha y hora en UTC
+    assert "acceso no autorizado" in caplog.text and "intruso" in caplog.text
+    assert "adivina-XYZ" not in caplog.text
+    assert b"adivina-XYZ" not in _repo(client).path.read_bytes()
+
+
+def test_cada_intento_y_cada_ruta_se_registran(client):
+    client.get("/panel", headers=auth_headers(password="mala1"))
+    client.get("/metricas/exportar.csv", headers=auth_headers(password="mala2"))
+    rows = _repo(client).failed_logins()
+    assert sorted(r["ruta"] for r in rows) == ["/metricas/exportar.csv", "/panel"]
+    assert {r["usuario"] for r in rows} == {"coordinadora"}
+
+
+def test_sin_credenciales_o_con_las_correctas_no_se_registra(client):
+    assert client.get("/panel").status_code == 401        # el navegador pide usuario
+    assert client.get("/panel", headers=auth_headers()).status_code == 200
+    assert _repo(client).failed_logins() == []
+
+
+def test_usuario_configurado_con_acento_no_truena(kb, cfg):
+    # secrets.compare_digest no acepta str con caracteres fuera de ASCII: sin
+    # comparar bytes, ADMIN_USER=coordinación daba error 500 en cada intento
+    cfg = type(cfg)(**{**cfg.__dict__, "admin_user": "coordinación", "admin_password": "clave123"})
+    repo = SqliteRepository(cfg.db_path, cfg.session_timeout_minutes)
+    c = TestClient(build_app(cfg, AdminService(cfg, kb, repo)))
+    assert c.get("/panel", headers=auth_headers(user="otro")).status_code == 401
+    assert [r["usuario"] for r in repo.failed_logins()] == ["otro"]
+    # FastAPI rechaza (401) un encabezado que no es ASCII antes de llegar a require_auth
+    token = base64.b64encode("coordinación:clave123".encode()).decode()
+    assert c.get("/panel", headers={"Authorization": f"Basic {token}"}).status_code == 401
+
+
+def test_usuario_larguisimo_se_recorta(client):
+    client.get("/panel", headers=auth_headers(user="x" * 5000))
+    assert len(_repo(client).failed_logins()[0]["usuario"]) == 100

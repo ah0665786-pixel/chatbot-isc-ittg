@@ -88,6 +88,35 @@ CREATE TABLE IF NOT EXISTS documentos (
 );
 """
 
+# Tablas agregadas después de la versión inicial. El DDL es el mismo en SQLite
+# y PostgreSQL; en PostgreSQL se crean solo si faltan (ver db_postgres.NEW_TABLES).
+# Un aviso por consulta escalada (HU-11 CA-03): si se envió, se guardó en
+# vista previa o falló, y a quién.
+NOTICES_DDL = """
+CREATE TABLE IF NOT EXISTS avisos (
+    id_aviso          TEXT PRIMARY KEY,
+    id_metrica        TEXT REFERENCES metricas(id_metrica) ON DELETE SET NULL,
+    timestamp         TEXT NOT NULL,
+    modo              TEXT NOT NULL,
+    estado            TEXT NOT NULL CHECK(estado IN ('enviado','guardado','fallido')),
+    destinatario      TEXT,
+    archivo           TEXT,
+    detalle           TEXT,
+    motivo_derivacion TEXT,
+    tipo_aviso        TEXT NOT NULL DEFAULT 'inmediato',  -- inmediato | resumen
+    fecha_resumen     TEXT              -- día (AAAA-MM-DD, hora local) que cubre el resumen
+)"""
+# Intentos fallidos de entrar al panel (HU-01 CA-03, RNF-SE-01). Nunca guarda
+# la contraseña intentada.
+FAILED_LOGINS_DDL = """
+CREATE TABLE IF NOT EXISTS accesos_fallidos (
+    id_acceso   TEXT PRIMARY KEY,
+    timestamp   TEXT NOT NULL,
+    usuario     TEXT,
+    ip          TEXT,
+    ruta        TEXT
+)"""
+
 
 def _now(now: datetime | None) -> datetime:
     return now or datetime.now(timezone.utc)
@@ -121,12 +150,63 @@ class MetricRow:
     motivo_derivacion: str | None
     tiempo_respuesta_seg: float | None
     calificacion: int | None
+    tiempo_busqueda_seg: float | None = None
+    aviso: str | None = None              # estado del aviso: enviado/guardado/fallido
+    aviso_destinatario: str | None = None
+    aviso_tipo: str | None = None         # inmediato | resumen
+
+
+@dataclass
+class DerivationRow:
+    """Una consulta derivada, para el resumen diario a la coordinadora."""
+    id_metrica: str
+    fecha: str                       # ISO en UTC
+    pregunta: str | None
+    respuesta: str | None
+    motivo_derivacion: str | None
+    telegram_id: str | None
+    nombre: str | None
+    aviso_inmediato: str | None      # estado del aviso inmediato, si lo hubo
 
 
 # Columna agregada después de la versión inicial: enlaza la métrica con el
 # mensaje del ESTUDIANTE (id_mensaje apunta a la respuesta del asistente).
 # Las bases existentes la reciben al arrancar (ver _migrate / SCHEMA de Postgres).
 QUESTION_COLUMN = "id_mensaje_usuario"
+# Tiempo de la búsqueda vectorial (RNF-EF-03); NULL si la consulta no llegó a buscar.
+SEARCH_TIME_COLUMN = "tiempo_busqueda_seg"
+# Columnas agregadas después de crear su tabla: (tabla, columna, definición para ADD COLUMN)
+COLUMN_MIGRATIONS = [
+    ("metricas", QUESTION_COLUMN, "TEXT REFERENCES mensajes(id_mensaje) ON DELETE SET NULL"),
+    ("metricas", SEARCH_TIME_COLUMN, "REAL"),
+    ("avisos", "tipo_aviso", "TEXT NOT NULL DEFAULT 'inmediato'"),
+    ("avisos", "fecha_resumen", "TEXT"),
+]
+
+
+def _last_notice(column: str) -> str:
+    """Dato del aviso de una métrica; si tiene inmediato y resumen, el inmediato."""
+    return (f"(SELECT a.{column} FROM avisos a WHERE a.id_metrica = m.id_metrica "
+            "ORDER BY CASE WHEN a.tipo_aviso = 'resumen' THEN 1 ELSE 0 END, "
+            "a.timestamp DESC LIMIT 1)")
+
+
+def derivations_query(ph: str) -> str:
+    """Consultas derivadas entre dos instantes (ISO UTC, inicio incluido y fin
+    excluido), con la pregunta, la respuesta y el estudiante. Común a SQLite
+    (ph='?') y PostgreSQL (ph='%s')."""
+    return (
+        "SELECT m.id_metrica, m.timestamp AS fecha, q.contenido AS pregunta, "
+        "r.contenido AS respuesta, m.motivo_derivacion, u.telegram_id, u.nombre, "
+        "(SELECT a.estado FROM avisos a WHERE a.id_metrica = m.id_metrica "
+        " AND a.tipo_aviso = 'inmediato' ORDER BY a.timestamp DESC LIMIT 1) AS aviso_inmediato "
+        "FROM metricas m "
+        "JOIN conversaciones c ON c.id_conversacion = m.id_conversacion "
+        "JOIN usuarios u ON u.id_usuario = c.id_usuario "
+        f"LEFT JOIN mensajes q ON q.id_mensaje = m.{QUESTION_COLUMN} "
+        "LEFT JOIN mensajes r ON r.id_mensaje = m.id_mensaje "
+        f"WHERE m.resultado = 'derived' AND m.timestamp >= {ph} AND m.timestamp < {ph} "
+        "ORDER BY m.timestamp")
 
 
 def export_query(start: str | None, end: str | None, ph: str) -> tuple[str, list]:
@@ -152,7 +232,10 @@ def export_query(start: str | None, end: str | None, ph: str) -> tuple[str, list
         "    AND u.rol = 'usuario' AND u.timestamp <= a.timestamp "
         "  ORDER BY u.timestamp DESC LIMIT 1)) AS pregunta, "
         "m.resultado, m.motivo_derivacion, m.tiempo_respuesta_seg, "
-        "m.calificacion_usuario AS calificacion "
+        f"m.calificacion_usuario AS calificacion, m.{SEARCH_TIME_COLUMN}, "
+        f"{_last_notice('estado')} AS aviso, "
+        f"{_last_notice('destinatario')} AS aviso_destinatario, "
+        f"{_last_notice('tipo_aviso')} AS aviso_tipo "
         f"FROM metricas m LEFT JOIN mensajes q ON q.id_mensaje = m.{QUESTION_COLUMN} "
         f"{clause} ORDER BY m.timestamp")
     return sql, params
@@ -177,11 +260,13 @@ class SqliteRepository:
             self._migrate()
 
     def _migrate(self) -> None:
-        """Agrega a bases ya existentes las columnas que llegaron después."""
-        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(metricas)")}
-        if QUESTION_COLUMN not in cols:
-            self._conn.execute(f"ALTER TABLE metricas ADD COLUMN {QUESTION_COLUMN} TEXT "
-                               "REFERENCES mensajes(id_mensaje) ON DELETE SET NULL")
+        """Agrega a bases ya existentes las columnas y tablas que llegaron después."""
+        self._conn.execute(NOTICES_DDL)
+        self._conn.execute(FAILED_LOGINS_DDL)
+        for table, column, definition in COLUMN_MIGRATIONS:
+            cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def close(self) -> None:
         self._conn.close()
@@ -267,14 +352,14 @@ class SqliteRepository:
             c.execute(
                 "INSERT INTO metricas(id_metrica, id_conversacion, id_mensaje, timestamp, "
                 "tiempo_respuesta_seg, fragmentos_recuperados, similitud_maxima, resultado, "
-                f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}, "
+                f"{SEARCH_TIME_COLUMN}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (mid, conversation_id, message_id, _iso(_now(now)),
                  result.timings.get("total"), len(result.hits), result.max_score,
                  result.outcome.value,
                  result.reason.value if result.outcome is Outcome.DERIVED else None,
                  result.attempts, result.provider or None, result.model or None,
-                 question_id))
+                 question_id, result.timings.get("retrieval")))
             for i, h in enumerate(result.hits):
                 c.execute(
                     "INSERT INTO metricas_fragmentos(id_metrica, posicion, doc_id, "
@@ -288,6 +373,67 @@ class SqliteRepository:
         with self._tx() as c:
             c.execute("UPDATE metricas SET calificacion_usuario=? WHERE id_metrica=?",
                      (calificacion, metric_id))
+
+    # ---- avisos a la coordinadora (HU-11 CA-03, UC-12) ----------------------
+    def record_notice(self, metric_id: str | None, estado: str, modo: str,
+                      destinatario: str = "", archivo: str = "", detalle: str = "",
+                      motivo: str | None = None, now: datetime | None = None,
+                      tipo_aviso: str = "inmediato", fecha_resumen: str | None = None) -> str:
+        nid = _uuid()
+        with self._tx() as c:
+            c.execute("INSERT INTO avisos(id_aviso, id_metrica, timestamp, modo, estado, "
+                      "destinatario, archivo, detalle, motivo_derivacion, tipo_aviso, "
+                      "fecha_resumen) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (nid, metric_id, _iso(_now(now)), modo, estado, destinatario or None,
+                       archivo or None, detalle or None, motivo, tipo_aviso, fecha_resumen))
+        return nid
+
+    def summary_sent(self, fecha_resumen: str) -> bool:
+        """¿Ya se procesó el resumen de ese día? (evita mandarlo dos veces)."""
+        return self._conn.execute(
+            "SELECT 1 FROM avisos WHERE tipo_aviso = 'resumen' AND fecha_resumen = ? LIMIT 1",
+            (fecha_resumen,)).fetchone() is not None
+
+    def last_notice_at(self, motivos: list[str]) -> str | None:
+        """Hora (ISO UTC) del último aviso inmediato enviado o guardado de esos motivos."""
+        marks = ",".join("?" * len(motivos))
+        return self._conn.execute(
+            "SELECT MAX(timestamp) AS t FROM avisos WHERE tipo_aviso = 'inmediato' AND "
+            f"estado IN ('enviado','guardado') AND motivo_derivacion IN ({marks})",
+            motivos).fetchone()["t"]
+
+    def count_derived(self, motivos: list[str], after: str, until: str) -> int:
+        """Consultas derivadas por esos motivos con after < timestamp <= until (ISO UTC)."""
+        marks = ",".join("?" * len(motivos))
+        return self._conn.execute(
+            "SELECT COUNT(*) AS n FROM metricas WHERE resultado = 'derived' AND "
+            f"motivo_derivacion IN ({marks}) AND timestamp > ? AND timestamp <= ?",
+            (*motivos, after, until)).fetchone()["n"]
+
+    def derived_between(self, start: str, end: str) -> list[DerivationRow]:
+        rows = self._conn.execute(derivations_query("?"), (start, end)).fetchall()
+        return [DerivationRow(**dict(r)) for r in rows]
+
+    def notices(self, limit: int = 100) -> list[dict]:
+        """Avisos, el más reciente primero."""
+        rows = self._conn.execute("SELECT * FROM avisos ORDER BY timestamp DESC LIMIT ?",
+                                  (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    # ---- accesos no autorizados al panel (HU-01 CA-03, RNF-SE-01) ------------
+    def record_failed_login(self, usuario: str, ip: str | None, ruta: str,
+                            now: datetime | None = None) -> str:
+        aid = _uuid()
+        with self._tx() as c:
+            c.execute("INSERT INTO accesos_fallidos(id_acceso, timestamp, usuario, ip, ruta) "
+                      "VALUES (?,?,?,?,?)", (aid, _iso(_now(now)), usuario, ip, ruta))
+        return aid
+
+    def failed_logins(self, limit: int = 100) -> list[dict]:
+        """Intentos fallidos, el más reciente primero."""
+        rows = self._conn.execute("SELECT * FROM accesos_fallidos ORDER BY timestamp DESC "
+                                  "LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
 
     # ---- documentos (espejo del manifiesto de la base de conocimiento) ------
     def sync_documents(self, docs: list[dict]) -> None:

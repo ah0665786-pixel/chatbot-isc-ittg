@@ -52,6 +52,19 @@ class Settings:
     smtp_password: str = ""
     smtp_use_tls: bool = True
     coordinadora_email: str = ""
+    # Avisos a la coordinadora (HU-11, ver app/notify.py): "vista_previa" solo
+    # guarda .eml en outbox_dir; "prueba" envía a avisos_correo_prueba;
+    # "coordinadora" envía a coordinadora_email; "desactivado" no avisa.
+    avisos_modo: str = "vista_previa"
+    avisos_correo_prueba: str = ""
+    outbox_dir: Path = Path("data/outbox")
+    # Tipos que se avisan al momento; los demás van al resumen diario, que se
+    # envía a esta hora (HH:MM, hora local) con el día anterior completo. Sin
+    # hora no hay resumen y todos los tipos se avisan al momento.
+    avisos_inmediatos: tuple[str, ...] = ("falla_tecnica",)
+    avisos_resumen_hora: str = "08:00"
+    # Falla técnica: como máximo un aviso inmediato cada tantos minutos (0 = sin límite)
+    avisos_falla_intervalo_min: int = 30
 
     admin_user: str = "coordinadora"
     admin_password: str = ""
@@ -123,7 +136,16 @@ class Settings:
             smtp_user=os.getenv("SMTP_USER", ""),
             smtp_password=os.getenv("SMTP_PASSWORD", ""),
             smtp_use_tls=os.getenv("SMTP_USE_TLS", "true").lower() != "false",
-            coordinadora_email=os.getenv("COORDINADORA_EMAIL", ""),
+            coordinadora_email=os.getenv("COORDINADORA_EMAIL", "").strip(),
+            avisos_modo=os.getenv("AVISOS_MODO", cls.avisos_modo).strip().lower(),
+            avisos_correo_prueba=os.getenv("AVISOS_CORREO_PRUEBA", "").strip(),
+            outbox_dir=Path(os.getenv("AVISOS_CARPETA", "data/outbox")),
+            avisos_inmediatos=tuple(
+                t.strip().lower() for t in os.getenv(
+                    "AVISOS_INMEDIATOS", ",".join(cls.avisos_inmediatos)).split(",")
+                if t.strip()),
+            avisos_resumen_hora=os.getenv("AVISOS_RESUMEN_HORA", cls.avisos_resumen_hora).strip(),
+            avisos_falla_intervalo_min=i_("AVISOS_FALLA_INTERVALO_MIN", 30),
             db_path=Path(os.getenv("DB_PATH", "data/app.db")),
             session_timeout_minutes=i_("SESSION_TIMEOUT_MINUTES", 30),
             admin_user=os.getenv("ADMIN_USER", "coordinadora"),

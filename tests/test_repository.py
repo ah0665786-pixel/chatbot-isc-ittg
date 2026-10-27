@@ -163,3 +163,91 @@ def test_foreign_key_cascade_deletes_children(repo):
         c.execute("DELETE FROM usuarios WHERE id_usuario=?", (uid,))
     assert repo._conn.execute("SELECT COUNT(*) n FROM conversaciones").fetchone()["n"] == 0
     assert repo._conn.execute("SELECT COUNT(*) n FROM mensajes").fetchone()["n"] == 0
+
+
+# ---- tiempo de búsqueda, avisos y accesos fallidos ---------------------------
+# Mismas pruebas en test_repository_postgres.py: los dos repositorios cumplen
+# el mismo contrato.
+def test_record_metric_guarda_el_tiempo_de_busqueda(repo):
+    cid = repo.get_or_create_conversation(repo.get_or_create_user("tg-1"))
+    r = rag_answered()
+    r.timings["retrieval"] = 0.034
+    repo.record_metric(cid, None, r)
+    repo.record_metric(cid, None, rag_derived(Reason.INJECTION))  # no llegó a buscar
+    assert sorted((x.tiempo_busqueda_seg for x in repo.metric_rows()),
+                  key=lambda v: v is None) == [0.034, None]
+
+
+def test_avisos_enlazados_a_su_metrica(repo):
+    cid = repo.get_or_create_conversation(repo.get_or_create_user("tg-1"))
+    mid = repo.record_metric(cid, None, rag_derived())
+    t = datetime(2026, 10, 24, 18, tzinfo=timezone.utc)
+    repo.record_notice(mid, "guardado", "vista_previa", "c@x.mx", "data/outbox/a.eml", "",
+                       "low_similarity", now=t)
+    repo.record_notice(None, "fallido", "prueba", "yo@x.mx", "", "SMTPException: x",
+                       now=t + timedelta(seconds=1))
+    first, second = repo.notices()
+    assert (first["estado"], first["id_metrica"], first["detalle"]) == \
+        ("fallido", None, "SMTPException: x")
+    assert (second["id_metrica"], second["archivo"], second["motivo_derivacion"]) == \
+        (mid, "data/outbox/a.eml", "low_similarity")
+    assert second["timestamp"] == "2026-10-24T18:00:00+00:00"
+    [row] = repo.metric_rows()
+    assert (row.aviso, row.aviso_destinatario) == ("guardado", "c@x.mx")
+
+
+def test_aviso_con_estado_invalido_se_rechaza(repo):
+    with pytest.raises(Exception):
+        repo.record_notice(None, "quizas", "prueba")
+
+
+def test_accesos_fallidos(repo):
+    t = datetime(2026, 10, 24, 18, tzinfo=timezone.utc)
+    repo.record_failed_login("intruso", "10.0.0.7", "/panel", now=t)
+    repo.record_failed_login("coordinadora", None, "/api/metricas", now=t + timedelta(minutes=1))
+    rows = repo.failed_logins()
+    assert [(r["usuario"], r["ip"], r["ruta"]) for r in rows] == [
+        ("coordinadora", None, "/api/metricas"), ("intruso", "10.0.0.7", "/panel")]
+    assert set(rows[0]) == {"id_acceso", "timestamp", "usuario", "ip", "ruta"}  # sin contraseña
+
+
+def test_resumen_diario_derivaciones_y_marca_de_enviado(repo):
+    uid = repo.get_or_create_user("tg-1", "Ana")
+    cid = repo.get_or_create_conversation(uid)
+    t = datetime(2026, 10, 25, 18, tzinfo=timezone.utc)
+    q = repo.add_message(cid, "usuario", "¿pregunta?", now=t)
+    a = repo.add_message(cid, "asistente", "orientación", now=t)
+    mid = repo.record_metric(cid, a, rag_derived(Reason.NOT_IN_CONTEXT), now=t, question_id=q)
+    repo.record_metric(cid, None, rag_answered(), now=t)          # respondida: no aparece
+    repo.record_metric(cid, None, rag_derived(), now=t + timedelta(days=1))  # fuera del rango
+    repo.record_notice(mid, "enviado", "coordinadora", "c@x.mx")  # inmediato por defecto
+    [row] = repo.derived_between("2026-10-25T06:00:00+00:00", "2026-10-26T06:00:00+00:00")
+    assert (row.id_metrica, row.pregunta, row.respuesta, row.motivo_derivacion) == \
+        (mid, "¿pregunta?", "orientación", "not_in_context")
+    assert (row.telegram_id, row.nombre, row.aviso_inmediato) == ("tg-1", "Ana", "enviado")
+    assert repo.summary_sent("2026-10-25") is False
+    repo.record_notice(mid, "guardado", "vista_previa", tipo_aviso="resumen",
+                       fecha_resumen="2026-10-25", now=t + timedelta(hours=14))
+    assert repo.summary_sent("2026-10-25") is True and repo.summary_sent("2026-10-24") is False
+    [m] = repo.metric_rows()[:1]
+    assert (m.aviso, m.aviso_tipo) == ("enviado", "inmediato")  # el inmediato tiene prioridad
+
+
+def test_avisos_de_antes_reciben_las_columnas_nuevas(tmp_path):
+    import sqlite3
+    path = tmp_path / "vieja.db"
+    repo = SqliteRepository(path)
+    repo.close()
+    con = sqlite3.connect(path)  # tabla avisos como la creó la versión anterior
+    con.executescript(
+        "DROP TABLE avisos;"
+        "CREATE TABLE avisos (id_aviso TEXT PRIMARY KEY, id_metrica TEXT, timestamp TEXT NOT NULL,"
+        " modo TEXT NOT NULL, estado TEXT NOT NULL, destinatario TEXT, archivo TEXT,"
+        " detalle TEXT, motivo_derivacion TEXT);"
+        "INSERT INTO avisos VALUES ('a1', NULL, '2026-10-24T21:12:53+00:00', 'vista_previa',"
+        " 'guardado', 'c@x.mx', 'data/outbox/a.eml', NULL, 'out_of_scope');")
+    con.commit(); con.close()
+    repo = SqliteRepository(path)
+    [old] = repo.notices()
+    assert (old["id_aviso"], old["tipo_aviso"], old["fecha_resumen"]) == ("a1", "inmediato", None)
+    repo.close()

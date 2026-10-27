@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.notify import notify_coordinadora, should_notify
+from app.notify import Notifier, should_notify, student_notice
 
 from app.adapters.db_sqlite import SqliteRepository
 from app.config import Settings
@@ -31,6 +31,13 @@ class ConversationService:
     cfg: Settings
     repo: SqliteRepository
     pipeline: RagPipeline
+    # Hace los avisos a la coordinadora en otro hilo (HU-11): el estudiante
+    # recibe su respuesta sin esperar al servidor de correo.
+    notifier: Notifier | None = None
+
+    def __post_init__(self) -> None:
+        if self.notifier is None:
+            self.notifier = Notifier(self.cfg, self.repo)
 
     def handle_message(self, external_id: str, display_name: str, text: str,
                        canal: str = "telegram") -> tuple[RagResult, str]:
@@ -49,11 +56,18 @@ class ConversationService:
         else:
             result = self.pipeline.answer(text, history)
 
-        message_id = self.repo.add_message(conv_id, "asistente", result.text)
         if should_notify(result):
-            notify_coordinadora(self.cfg, external_id, display_name, text, result)
+            # "Tu consulta fue notificada", solo si de verdad le llega a la
+            # coordinación (modo coordinadora); en futuro: el aviso sale después
+            notice = student_notice(self.cfg, result.reason)
+            if notice:
+                result.text = f"{result.text}\n\n{notice}"
+
+        message_id = self.repo.add_message(conv_id, "asistente", result.text)
         metric_id = self.repo.record_metric(conv_id, message_id, result,
                                             question_id=question_id)
+        if should_notify(result):  # el aviso queda enlazado a esta métrica
+            self.notifier.submit(metric_id, external_id, display_name, text, result)
         return result, metric_id
 
     def rate(self, metric_id: str, score: int) -> None:

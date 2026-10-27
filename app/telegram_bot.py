@@ -130,6 +130,7 @@ def main() -> None:
     if not token:
         raise SystemExit("Falta TELEGRAM_BOT_TOKEN en el .env (lo da @BotFather en Telegram)")
     app = build_application(cfg, token)
+    app.bot_data["svc"].notifier.start_daily_summary()  # resumen diario a la coordinadora
     log.info("Bot iniciado, esperando mensajes (Ctrl+C para detener)...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

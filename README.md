@@ -25,6 +25,12 @@ python -m app.cli kb
 python -m app.cli chat
 # 4) Calibra el umbral con preguntas reales (copia data\golden.example.jsonl -> golden.jsonl)
 python -m app.cli calibrate data\golden.jsonl
+# 5) Avisos a la coordinadora (ver AVISOS_MODO en .env.example): por defecto solo se
+#    guardan en data\outbox\ como .eml. Para probar el envío real a TU correo:
+python -m app.cli probar-correo
+python -m app.cli ejemplos-avisos  # un .eml de ejemplo de cada tipo y del resumen diario
+python -m app.cli avisos           # qué avisos se enviaron, guardaron o fallaron
+python -m app.cli accesos          # intentos fallidos de entrar al panel
 ```
 Con `--fake` todo corre sin descargar modelos (solo para probar la plomería).
 

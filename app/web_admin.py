@@ -35,16 +35,35 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # dando 422.
 OptionalDate = Annotated[date | None, BeforeValidator(lambda v: v or None)]
 security = HTTPBasic()
+MAX_LOGGED_USER = 100  # recorta el usuario intentado antes de guardarlo
 
 
 def build_app(cfg: Settings, svc: AdminService) -> FastAPI:
     app = FastAPI(title="Panel de Administración ISC")
     app.state.svc = svc
 
-    def require_auth(credentials: HTTPBasicCredentials = Depends(security)) -> str:
-        user_ok = secrets.compare_digest(credentials.username, cfg.admin_user)
-        pass_ok = secrets.compare_digest(credentials.password, cfg.admin_password)
+    def _record_failed_login(username: str, request: Request) -> None:
+        """Acceso no autorizado (HU-01 CA-03, RNF-SE-01): usuario intentado, IP y
+        ruta al log y a la tabla accesos_fallidos. La contraseña intentada no se
+        guarda en ningún lado. En Docker la IP es la de la red de Docker."""
+        usuario = username[:MAX_LOGGED_USER]
+        ip = request.client.host if request.client else None
+        log.warning("acceso no autorizado al panel: usuario=%r ip=%s ruta=%s",
+                    usuario, ip, request.url.path)
+        try:
+            svc.repo.record_failed_login(usuario, ip, request.url.path)
+        except Exception:  # noqa: BLE001 — la respuesta sigue siendo 401 aunque falle la BD
+            log.exception("no se pudo registrar el acceso no autorizado")
+
+    def require_auth(request: Request,
+                     credentials: HTTPBasicCredentials = Depends(security)) -> str:
+        # Sin encabezado de autenticación HTTPBasic responde 401 antes de llegar
+        # aquí: es el navegador pidiendo usuario y contraseña, no un intento.
+        user_ok = secrets.compare_digest(credentials.username.encode(), cfg.admin_user.encode())
+        pass_ok = secrets.compare_digest(credentials.password.encode(),
+                                         cfg.admin_password.encode())
         if not (user_ok and pass_ok):
+            _record_failed_login(credentials.username, request)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Credenciales inválidas",
                                 headers={"WWW-Authenticate": "Basic"})
         return credentials.username

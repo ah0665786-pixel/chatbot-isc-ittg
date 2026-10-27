@@ -13,6 +13,7 @@ from pathlib import Path
 
 from app.adapters.db_sqlite import MetricsSummary, SqliteRepository
 from app.config import Settings
+from app.domain import REASON_LABELS
 from app.rag.knowledge_base import IngestReport, KnowledgeBase
 from app.rag.loaders import SUPPORTED
 from app.service import sync_kb_to_repo
@@ -21,16 +22,13 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB: generoso para un reglamento de 50 
 
 # ---- exportación de métricas a CSV (HU-04, HU-13) ---------------------------
 CSV_HEADER = ["Fecha", "Pregunta", "Resultado", "Motivo de derivación",
-              "Tiempo de respuesta (s)", "Calificación (1-5)"]
+              "Tiempo de respuesta (s)", "Calificación (1-5)", "Tiempo de búsqueda (s)",
+              "Aviso a la coordinadora"]
 RESULT_LABELS = {"answered": "Respondida", "derived": "Derivada"}
-REASON_LABELS = {  # app.domain.Reason, en palabras de la coordinación
-    "out_of_scope": "Fuera de alcance (datos personales o documentos oficiales)",
-    "injection": "Intento de manipular al asistente",
-    "low_similarity": "Tema no encontrado en los documentos",
-    "not_in_context": "Sin información suficiente en los documentos",
-    "validation_failed": "Respuesta no verificable contra los documentos",
-    "llm_unavailable": "Servicio de IA no disponible",
-    "too_long": "Pregunta demasiado larga",
+NOTICE_LABELS = {  # tabla avisos (app/notify.py)
+    "enviado": "Enviado",
+    "guardado": "Guardado sin enviar",
+    "fallido": "Falló el envío",
 }
 # Una celda que empieza con = + - @ (o tab/retorno) Excel la toma como fórmula
 # al abrir el archivo: la pregunta la escribe el estudiante, así que se neutraliza.
@@ -39,6 +37,19 @@ _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 def _csv_safe(text: str) -> str:
     return "'" + text if text.startswith(_FORMULA_START) else text
+
+
+def _secs(value: float | None, digits: int = 2) -> str:
+    return "" if value is None else f"{value:.{digits}f}"
+
+
+def _notice(estado: str | None, destinatario: str | None, tipo: str | None) -> str:
+    if not estado:
+        return ""
+    label = NOTICE_LABELS.get(estado, estado)
+    if tipo == "resumen":
+        label += " en el resumen diario"
+    return f"{label} ({destinatario})" if destinatario else label
 
 
 def _utc_bound(day: date, tz: tzinfo) -> str:
@@ -147,7 +158,9 @@ class AdminService:
                 _csv_safe(r.pregunta or ""),
                 RESULT_LABELS.get(r.resultado, r.resultado),
                 REASON_LABELS.get(r.motivo_derivacion, r.motivo_derivacion or ""),
-                "" if r.tiempo_respuesta_seg is None else f"{r.tiempo_respuesta_seg:.2f}",
+                _secs(r.tiempo_respuesta_seg),
                 "" if r.calificacion is None else r.calificacion,
+                _secs(r.tiempo_busqueda_seg, 3),  # la búsqueda tarda milisegundos
+                _notice(r.aviso, r.aviso_destinatario, r.aviso_tipo),
             ])
         return out.getvalue()

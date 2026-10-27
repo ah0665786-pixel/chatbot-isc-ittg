@@ -8,12 +8,17 @@
   python -m app.cli loadtest [--n-users 20] [--messages 1] [--real-llm]  (RNF-EF-02)
   python -m app.cli check-llm
   python -m app.cli kb            # lista documentos indexados
+  python -m app.cli probar-correo # manda UN aviso de prueba a AVISOS_CORREO_PRUEBA
+  python -m app.cli avisos        # últimos avisos a la coordinadora (HU-11)
+  python -m app.cli ejemplos-avisos  # un .eml de ejemplo por tipo y del resumen diario
+  python -m app.cli accesos       # últimos accesos no autorizados al panel (HU-01)
 --fake usa embeddings de prueba (sin descargar modelos)."""
 from __future__ import annotations
 
 import argparse
 import logging
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from app import calibrate as cal
@@ -22,7 +27,8 @@ from app import redteam as rt_mod
 from app.adapters.llm_openai_compat import OpenAICompatLLM
 from app.adapters.vectorstore_faiss import IncompatibleIndex
 from app.config import Settings
-from app.domain import Outcome
+from app.domain import Outcome, RagResult, Reason
+from app import notify
 from app.runtime import build_runtime
 from app.service import ConversationService, sync_kb_to_repo
 
@@ -58,10 +64,46 @@ def _report(rt, date_from: str | None, date_to: str | None) -> None:
             print(f"  {reason:<20} {n}")
 
 
+def probar_correo(cfg: Settings) -> int:
+    """Prueba de envío real: manda un aviso de ejemplo a AVISOS_CORREO_PRUEBA,
+    sin importar AVISOS_MODO (nunca a la coordinadora). Se niega si falta algo."""
+    faltan = [name for name, value in (
+        ("SMTP_HOST", cfg.smtp_host), ("SMTP_USER", cfg.smtp_user),
+        ("SMTP_PASSWORD", cfg.smtp_password), ("AVISOS_CORREO_PRUEBA", cfg.avisos_correo_prueba))
+        if not value]
+    if faltan:
+        print(f"No se envió nada: falta {', '.join(faltan)} en el .env.")
+        return 1
+    print(f"Enviando un aviso de prueba a {cfg.avisos_correo_prueba} "
+          f"desde {cfg.smtp_user} por {cfg.smtp_host}:{cfg.smtp_port}...")
+    ejemplo = RagResult(Outcome.DERIVED, Reason.NOT_IN_CONTEXT,
+                        "(Aquí va el mensaje de orientación que recibió el estudiante.)",
+                        detail="aviso de prueba")
+    res = notify.notify_coordinadora(
+        replace(cfg, avisos_modo=notify.PRUEBA), "prueba-cli", "Prueba de envío",
+        "Este es un aviso de prueba del chatbot (python -m app.cli probar-correo).", ejemplo)
+    if res.estado == notify.ENVIADO:
+        print("Enviado. Revisa la bandeja de entrada (y la de spam) de ese correo.")
+        return 0
+    print(f"NO se envió ({res.estado}): {res.detalle}")
+    if res.archivo:
+        print(f"Copia del aviso en {res.archivo}")
+    return 1
+
+
+def _print_rows(rows: list[dict], columns: list[str]) -> None:
+    if not rows:
+        print("(sin registros)")
+    for r in rows:
+        print("  " + " | ".join(str(r.get(c) or "-") for c in columns))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="app.cli")
     ap.add_argument("cmd", choices=["ingest", "ask", "chat", "calibrate", "check-llm",
-                                    "kb", "report", "redteam", "loadtest"])
+                                    "kb", "report", "redteam", "loadtest",
+                                    "probar-correo", "avisos", "accesos",
+                                    "ejemplos-avisos"])
     ap.add_argument("arg", nargs="?")
     ap.add_argument("--version", default="")
     ap.add_argument("--rebuild", action="store_true")
@@ -104,6 +146,26 @@ def main(argv=None) -> int:
                 rc = 1
                 print(f"[{e.name}] FALLA: {ex}")
         return rc
+
+    if a.cmd == "probar-correo":
+        return probar_correo(cfg)
+
+    if a.cmd == "ejemplos-avisos":  # sin base de datos ni métricas
+        for path in notify.write_examples(cfg, cfg.outbox_dir):
+            print(f"  {path}")
+        return 0
+
+    if a.cmd in ("avisos", "accesos"):  # solo la base de datos: no carga modelos
+        from app.runtime import build_repository
+        repo = build_repository(cfg)
+        if a.cmd == "avisos":
+            _print_rows(repo.notices(20), ["timestamp", "tipo_aviso", "estado", "modo",
+                                           "destinatario", "motivo_derivacion", "archivo",
+                                           "detalle"])
+        else:
+            _print_rows(repo.failed_logins(20), ["timestamp", "usuario", "ip", "ruta"])
+        repo.close()
+        return 0
 
     # 'loadtest' sin --real-llm arma su propio entorno (sandbox, o con --kb-real
     # la base de conocimiento completa) y su propia BD: no toca la base real.
@@ -148,6 +210,7 @@ def main(argv=None) -> int:
                 cal_in = input("  Calificación 1-5 (Enter para omitir): ").strip()
                 if cal_in.isdigit() and 1 <= int(cal_in) <= 5:
                     svc.rate(metric_id, int(cal_in))
+        svc.notifier.close()  # termina los avisos pendientes antes de cerrar la BD
 
     elif a.cmd == "report":
         _report(rt, a.date_from, a.date_to)

@@ -154,7 +154,11 @@ class RagPipeline:
         hits_all = self.retrieve(q, history=history)
         timings["retrieval"] = time.perf_counter() - t
         max_score = hits_all[0].score if hits_all else 0.0
-        hits = [h for h in hits_all if h.score >= self.cfg.sim_threshold]
+        # RNF-EF-03: la búsqueda vectorial debe tardar <= 2 s; también queda en
+        # metricas.tiempo_busqueda_seg
+        log.info("búsqueda: %.3f s, %d fragmentos, similitud máx. %.3f",
+                 timings["retrieval"], len(hits_all), max_score)
+        hits =[h for h in hits_all if h.score >= self.cfg.sim_threshold]
         if not hits:
             return derive(Reason.LOW_SIMILARITY, hits_all, max_score,
                           detail=f"max={max_score:.3f} < umbral {self.cfg.sim_threshold}")

@@ -41,7 +41,7 @@ def cfg(tmp_path):
     return Settings(kb_dir=tmp_path / "kb", docs_dir=tmp_path / "docs",
                     db_path=tmp_path / "app.db",
                     sim_threshold=0.20, chunk_words=60, chunk_overlap_words=10,
-                    contact_email="coord.isc@example.mx")
+                    contact_email="coord.isc@example.mx", outbox_dir=tmp_path / "outbox")
 
 
 @pytest.fixture
