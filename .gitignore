@@ -14,3 +14,6 @@ data/kb/manifest.json
 data/kb/meta.json
 # Avisos a la coordinadora guardados en vista previa (traen preguntas y datos de estudiantes)
 data/outbox/
+
+# Certificados y llaves de prueba: se generan al correr las pruebas (tests/fake_smtp.py)
+tests/fixtures/
