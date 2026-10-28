@@ -189,9 +189,20 @@ TOPIC_COLUMN = "tema"
 MODEL_REPLIES_COLUMN = "respuestas_modelo"
 # Veces que se reintentó porque el modelo dijo NO_INFO pese a pasar el umbral (0 o 1).
 NO_INFO_RETRIES_COLUMN = "reintentos_sin_info"
+# Afirmaciones sin respaldo en los fragmentos (RF-RN-02, app/rag/grounding.py):
+# JSON con cada oración, su motivo, el intento y qué se hizo (regenerada,
+# quitada, recortada o derivada), y cuántas se quitaron de la respuesta entregada.
+CLAIMS_COLUMN = "afirmaciones_sin_respaldo"
+REMOVED_CLAIMS_COLUMN = "afirmaciones_quitadas"
 def model_replies_json(result: RagResult) -> str | None:
     """Respuestas del modelo no usadas, como JSON (None si no hubo)."""
     return json.dumps(result.debug, ensure_ascii=False) if result.debug else None
+
+
+def claims_json(result: RagResult) -> str | None:
+    """Afirmaciones sin respaldo y qué se hizo con ellas, como JSON (None si no hubo)."""
+    claims = result.unsupported_claims
+    return json.dumps(claims, ensure_ascii=False) if claims else None
 
 
 # Columnas agregadas después de crear su tabla: (tabla, columna, definición para ADD COLUMN)
@@ -201,6 +212,8 @@ COLUMN_MIGRATIONS = [
     ("metricas", TOPIC_COLUMN, "TEXT"),
     ("metricas", MODEL_REPLIES_COLUMN, "TEXT"),
     ("metricas", NO_INFO_RETRIES_COLUMN, "INTEGER NOT NULL DEFAULT 0"),
+    ("metricas", CLAIMS_COLUMN, "TEXT"),
+    ("metricas", REMOVED_CLAIMS_COLUMN, "INTEGER NOT NULL DEFAULT 0"),
     ("avisos", "tipo_aviso", "TEXT NOT NULL DEFAULT 'inmediato'"),
     ("avisos", "fecha_resumen", "TEXT"),
 ]
@@ -376,15 +389,17 @@ class SqliteRepository:
                 "INSERT INTO metricas(id_metrica, id_conversacion, id_mensaje, timestamp, "
                 "tiempo_respuesta_seg, fragmentos_recuperados, similitud_maxima, resultado, "
                 f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}, "
-                f"{SEARCH_TIME_COLUMN}, {TOPIC_COLUMN}, {MODEL_REPLIES_COLUMN}, {NO_INFO_RETRIES_COLUMN}) "
-                f"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                f"{SEARCH_TIME_COLUMN}, {TOPIC_COLUMN}, {MODEL_REPLIES_COLUMN}, {NO_INFO_RETRIES_COLUMN}, "
+                f"{CLAIMS_COLUMN}, {REMOVED_CLAIMS_COLUMN}) "
+                f"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (mid, conversation_id, message_id, _iso(_now(now)),
                  result.timings.get("total"), len(result.hits), result.max_score,
                  result.outcome.value,
                  result.reason.value if result.outcome is Outcome.DERIVED else None,
                  result.attempts, result.provider or None, result.model or None,
                  question_id, result.timings.get("retrieval"), tema,
-                 model_replies_json(result), result.no_info_retries))
+                 model_replies_json(result), result.no_info_retries,
+                 claims_json(result), result.removed_claims))
             for i, h in enumerate(result.hits):
                 c.execute(
                     "INSERT INTO metricas_fragmentos(id_metrica, posicion, doc_id, "

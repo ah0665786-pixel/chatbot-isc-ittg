@@ -19,9 +19,9 @@ import psycopg2.extras
 
 from app.domain import Outcome, RagResult
 from app.adapters.db_sqlite import (  # mismos dataclasses, DDL y consulta de exportación
-    COLUMN_MIGRATIONS, FAILED_LOGINS_DDL, MODEL_REPLIES_COLUMN, NO_INFO_RETRIES_COLUMN,
-    NOTICES_DDL, QUESTION_COLUMN, SEARCH_TIME_COLUMN, TOPIC_COLUMN, DerivationRow,
-    model_replies_json, MetricRow, MetricsSummary, derivations_query, export_query)
+    CLAIMS_COLUMN, COLUMN_MIGRATIONS, FAILED_LOGINS_DDL, MODEL_REPLIES_COLUMN,
+    NO_INFO_RETRIES_COLUMN, NOTICES_DDL, QUESTION_COLUMN, REMOVED_CLAIMS_COLUMN,
+    SEARCH_TIME_COLUMN, TOPIC_COLUMN, DerivationRow, claims_json, model_replies_json, MetricRow, MetricsSummary, derivations_query, export_query)
 from app.reports import percentile
 
 # Mismo esquema que SQLite (ver db_sqlite.py): TEXT para UUID/fechas por
@@ -265,15 +265,17 @@ class PostgresRepository:
                 "INSERT INTO metricas(id_metrica, id_conversacion, id_mensaje, timestamp, "
                 "tiempo_respuesta_seg, fragmentos_recuperados, similitud_maxima, resultado, "
                 f"motivo_derivacion, intentos, proveedor_llm, modelo_llm, {QUESTION_COLUMN}, "
-                f"{SEARCH_TIME_COLUMN}, {TOPIC_COLUMN}, {MODEL_REPLIES_COLUMN}, {NO_INFO_RETRIES_COLUMN}) "
-                f"VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                f"{SEARCH_TIME_COLUMN}, {TOPIC_COLUMN}, {MODEL_REPLIES_COLUMN}, {NO_INFO_RETRIES_COLUMN}, "
+                f"{CLAIMS_COLUMN}, {REMOVED_CLAIMS_COLUMN}) "
+                f"VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (mid, conversation_id, message_id, _iso(_now(now)),
                  result.timings.get("total"), len(result.hits), result.max_score,
                  result.outcome.value,
                  result.reason.value if result.outcome is Outcome.DERIVED else None,
                  result.attempts, result.provider or None, result.model or None,
                  question_id, result.timings.get("retrieval"), tema,
-                 model_replies_json(result), result.no_info_retries))
+                 model_replies_json(result), result.no_info_retries,
+                 claims_json(result), result.removed_claims))
             for i, h in enumerate(result.hits):
                 c.execute(
                     "INSERT INTO metricas_fragmentos(id_metrica, posicion, doc_id, "

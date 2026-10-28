@@ -63,6 +63,14 @@ class RagResult:
     detail: str = ""
     debug: list[str] = field(default_factory=list)  # respuestas del modelo no usadas, para diagnóstico
     no_info_retries: int = 0        # reintentos porque el modelo dijo NO_INFO (0 o 1)
+    # Oraciones sin respaldo en los fragmentos (RF-RN-02): {oracion, motivo, intento,
+    # accion}; accion = regenerada | quitada | recortada (solo una cláusula) | derivada
+    unsupported_claims: list[dict] = field(default_factory=list)
+
+    @property
+    def removed_claims(self) -> int:
+        """Afirmaciones que se quitaron (o recortaron) de la respuesta entregada."""
+        return sum(1 for c in self.unsupported_claims if c.get("accion") in ("quitada", "recortada"))
 
     @property
     def derived(self) -> bool:

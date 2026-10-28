@@ -383,3 +383,45 @@ def test_migracion_agrega_respuestas_modelo_y_reintentos_sin_perder_datos():
         assert m.tema == "bajas" and m.tiempo_respuesta_seg == 1.0
     finally:
         repo.close()
+
+
+CLAIMS = [{"oracion": "El Comité Académico evaluará la solicitud.", "intento": 1,
+           "motivo": "atribuye a Comité Académico una acción (evaluar) que el documento no le "
+                     "atribuye", "accion": "quitada"}]
+
+
+def test_guarda_afirmaciones_sin_respaldo():
+    import json
+    repo = _fresh_repo()
+    cid = repo.get_or_create_conversation(repo.get_or_create_user("12345"))
+    result = RagResult(Outcome.ANSWERED, Reason.NONE, "r", [], 0.87, "groq", "m", 2,
+                       {"total": 1.1}, "ok", [], unsupported_claims=CLAIMS)
+    mid = repo.record_metric(cid, None, result, tema="bajas")
+    with repo._conn, repo._conn.cursor() as c:
+        c.execute("SELECT afirmaciones_sin_respaldo, afirmaciones_quitadas FROM metricas "
+                  "WHERE id_metrica=%s", (mid,))
+        row = c.fetchone()
+    assert json.loads(row["afirmaciones_sin_respaldo"]) == CLAIMS
+    assert row["afirmaciones_quitadas"] == 1
+    repo.close()
+
+
+def test_migracion_agrega_afirmaciones_sin_perder_datos():
+    from app.adapters.db_postgres import PostgresRepository
+    repo = _fresh_repo()
+    cid = repo.get_or_create_conversation(repo.get_or_create_user("12345"))
+    repo.record_metric(cid, None, RagResult(Outcome.ANSWERED, Reason.NONE, "r", [], 0.9, "g", "m",
+                                            1, {"total": 1.0}, "ok", []), tema="bajas")
+    with repo._conn, repo._conn.cursor() as c:
+        c.execute("ALTER TABLE metricas DROP COLUMN afirmaciones_sin_respaldo")
+        c.execute("ALTER TABLE metricas DROP COLUMN afirmaciones_quitadas")
+    repo.close()
+    repo = PostgresRepository(DSN)  # al arrancar se agregan (solo si faltan)
+    try:
+        with repo._conn, repo._conn.cursor() as c:
+            c.execute("SELECT count(*) AS n, min(afirmaciones_quitadas) AS q, "
+                      "max(afirmaciones_sin_respaldo) AS a FROM metricas")
+            row = c.fetchone()
+        assert (row["n"], row["q"], row["a"]) == (1, 0, None)
+    finally:
+        repo.close()

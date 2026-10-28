@@ -270,5 +270,8 @@ def test_base_existente_recibe_respuestas_modelo_y_reintentos(tmp_path):
     row = repo._conn.execute(
         "SELECT respuestas_modelo, reintentos_sin_info FROM metricas WHERE id_metrica='x'").fetchone()
     assert row["respuestas_modelo"] is None and row["reintentos_sin_info"] == 0
+    row = repo._conn.execute("SELECT afirmaciones_sin_respaldo, afirmaciones_quitadas "
+                             "FROM metricas WHERE id_metrica='x'").fetchone()
+    assert row["afirmaciones_sin_respaldo"] is None and row["afirmaciones_quitadas"] == 0
     repo.close()
     SqliteRepository(path).close()  # abrirla otra vez no intenta agregarlas de nuevo
