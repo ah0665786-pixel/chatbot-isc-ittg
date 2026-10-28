@@ -242,3 +242,34 @@ def test_instrucciones_piden_no_agregar_lo_que_el_documento_no_dice():
     for phrase in ("TODOS los elementos", "NO_INFO seguido de dos puntos",
                    "eso NO es falta de información", "Tampoco transcribas", "fuente"):
         assert phrase in SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize("sentence,motivo", [
+    # 28-oct: "¿Puedo pedir la baja temporal después de los 20 días hábiles?"
+    ("Pasado ese plazo, el estudiante ya no tiene derecho a solicitarla.", "niega"),
+    ("No, ya no es posible solicitar la baja temporal.", "niega"),
+    # "que" también introduce lo que hace el órgano
+    ("Espera la respuesta del Comité Académico, que decidirá si procede la baja.",
+     "Comité Académico"),
+])
+def test_negaciones_y_relativo_que(sentence, motivo):
+    [claim] = grounding.unsupported(sentence, HITS, Q)[0]
+    assert motivo in claim.reason
+
+
+def test_negacion_que_si_dice_el_documento_pasa(kb, cfg):
+    # El Reglamento de prueba dice "no podrá exceder de dos semestres consecutivos"
+    p = RagPipeline(cfg, kb.embedder, kb.store, ScriptedLLM("x"))
+    hits = p.retrieve("¿Cuánto dura la baja temporal?")
+    sentence = "La baja temporal no podrá exceder de dos semestres consecutivos."
+    assert grounding.unsupported(sentence, hits, "¿Cuánto dura la baja temporal?")[0] == []
+
+
+def test_respuesta_que_niega_el_tramite_deriva(kb, cfg):
+    denial = ("No, ya no es posible solicitar la baja temporal después de los 20 días hábiles. "
+              "Pasado ese plazo, el estudiante ya no tiene derecho a solicitarla. "
+              "(Manual de Lineamientos TecNM, pág. 46)")
+    r = pipe(kb, cfg, ScriptedLLM(denial)).answer(
+        "¿Puedo pedir la baja temporal después de los 20 días hábiles?")
+    assert r.reason is Reason.VALIDATION_FAILED and "niega" in r.detail
+    assert check_facts(denial, _facts())[1]  # también lo cuenta la evaluación

@@ -28,7 +28,8 @@ después esa persona u órgano (que "evalúa", "autoriza", "notifica" o "remite"
    b) Si el CONTEXTO describe procedimientos distintos (por ejemplo, dentro y fuera de plazo), \
 no mezcles sus pasos ni digas que uno "sigue los mismos pasos" que otro.
    c) No completes con deducciones ni con lo que normalmente se hace. Si el documento no dice un \
-paso o un requisito, no lo inventes y tampoco lo menciones.
+paso o un requisito, no lo inventes y tampoco lo menciones. No digas que algo ya no se puede \
+hacer si el documento no lo dice.
    d) Incluye las condiciones y excepciones que el fragmento pone a lo que respondes (a quién \
 aplica, qué casos quedan fuera).
 2. Si el CONTEXTO no contiene la respuesta, responde NO_INFO seguido de dos puntos y, en una \
@@ -201,13 +202,16 @@ class RagPipeline:
             """Entrega la respuesta (draft = texto, afirmaciones, total revisadas, intento)
             sin las afirmaciones sin respaldo, o deriva. Quitar es seguro porque lo que
             queda son oraciones que sí se revisaron contra el documento; pero si se va más
-            de la mitad, el resto no es confiable en conjunto (el modelo entendió mal el
-            trámite) y es más seguro derivar."""
+            de la mitad, o una oración niega lo que el documento permite, el resto no es
+            confiable en conjunto (el modelo entendió mal el trámite) y es más seguro
+            derivar."""
             text, claims, total, draft_no = draft
             fixed = grounding.remove(text, claims)
             removed = sum(1 for c in claims if c.cut_at < 0)
             ok, _why = self.validate(fixed, hits, q)
-            if ok and removed < total and removed <= total * grounding.MAX_REMOVED_FRACTION:
+            kept = grounding.unsupported(fixed, hits, q)[1]  # oraciones que quedan, sin la fuente
+            if (ok and kept and not any(c.severe for c in claims)
+                    and removed <= total * grounding.MAX_REMOVED_FRACTION):
                 note_claims(claims, draft_no, "quitada")
                 drafts.append(f"[intento {draft_no}, se quitaron {len(claims)} "
                               f"{CLAIMS_UNSUPPORTED}]\n{text}")

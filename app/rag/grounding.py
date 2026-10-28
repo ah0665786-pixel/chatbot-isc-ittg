@@ -44,6 +44,7 @@ MAX_REMOVED_FRACTION = 0.5
 # buscan con la expresión; del lado del documento, sin espacios (clave).
 ACTORS = [
     ("Comité Académico", r"comite\s+academico", "comiteacademico"),
+    ("Comité", r"\bcomite\b", "comite"),  # "del Comité, que decidirá..."
     ("Servicios Escolares", r"servicios\s+escolares", "serviciosescolares"),
     ("División de Estudios Profesionales", r"division(\s+de\s+estudios\s+profesionales)?\b",
      "division"),
@@ -82,7 +83,7 @@ _ACTION_RE["notificar"] = re.compile(
 _ACTOR_RES = [(name, re.compile(rx), key) for name, rx, key in ACTORS]
 # El actor es el sujeto de la acción si la sigue de cerca ("el Comité
 # Académico evaluará") o con un relativo ("..., quien notifica").
-_RELATIVE = re.compile(r"(quien|quienes|el cual|la cual|los cuales|las cuales)\s+"
+_RELATIVE = re.compile(r"(quien|quienes|el cual|la cual|los cuales|las cuales|que)\s+"
                        r"((lo|la|le|les|te|se)\s+)?$")
 _MAX_GAP_WORDS = 3
 # Frases que unen procedimientos distintos o completan con lo habitual.
@@ -104,6 +105,11 @@ _NOT_STATED_2 = re.compile(r"\bno se (menciona|especifica|indica|detalla|estable
 # "CONTEXTO" es el nombre interno de los fragmentos en el prompt: el
 # estudiante no debe verlo.
 _INTERNAL = re.compile(r"\bcontexto\b")
+# Negar lo que el documento no niega: el 28-oct el modelo respondió "pasado ese
+# plazo ya no tiene derecho a solicitarla", cuando el Manual dice que fuera de
+# plazo se manifiesta al Comité Académico.
+_DENIAL = re.compile(r"\b(ya\s+no|no)\s+(es\s+posible|se\s+puede|puede[sn]?|podra[sn]?|"
+                     r"tiene[sn]?\s+derecho|tendra[sn]?\s+derecho|procede|aplica)\b")
 _UNIT_NOTE = re.compile(r"\b(habil|habiles|natural|naturales|calendario)\b")
 
 _STOP = set("""para como este esta esto estos estas donde cuando tiene tienen debe deben puede
@@ -118,7 +124,7 @@ _SOURCE_LINE = re.compile(r"^\s*[(*_]*\s*fuente", re.IGNORECASE)
 _CITATION = re.compile(r"\([^)]*(\.pdf|p[aá]g|manual|reglamento|lineamiento|fuente)[^)]*\)",
                        re.IGNORECASE)
 _SENTENCE_END = re.compile(r"(?<=[.!?;])\s+")
-_CLAUSE_CUT = re.compile(r",\s*(quien|quienes|el cual|la cual|los cuales|las cuales)\s")
+_CLAUSE_CUT = re.compile(r",\s*(quien|quienes|el cual|la cual|los cuales|las cuales|que)\s")
 
 
 @dataclass
@@ -126,6 +132,9 @@ class Claim:
     text: str            # la oración tal como está en la respuesta
     reason: str          # por qué no tiene respaldo
     cut_at: int = -1     # si >= 0, basta con quitar la oración desde aquí (cláusula "..., quien ...")
+    # Cambia la conclusión de la respuesta (niega lo que el documento permite): quitar
+    # la oración dejaría el resto engañoso ("No, ..."), así que no se quita, se deriva.
+    severe: bool = False
 
     def as_dict(self) -> dict:
         return {"oracion": self.text, "motivo": self.reason}
@@ -196,6 +205,10 @@ def _check(sentence: str, ctx: Context) -> Claim | None:
             return Claim(sentence, f"{why}: \"{m.group(0)}\"")
     if (_NOT_STATED.search(norm) or _NOT_STATED_2.search(norm)) and not _UNIT_NOTE.search(norm):
         return Claim(sentence, "menciona algo que el documento no dice")
+    m = _DENIAL.search(norm)
+    if m and _phrase(m.group(0)) not in ctx.norm:
+        return Claim(sentence, f"niega algo que el documento no niega: \"{m.group(0)}\"",
+                     severe=True)
     if _INTERNAL.search(norm) and not _INTERNAL.search(ctx.norm):
         return Claim(sentence, "menciona el CONTEXTO interno")
     wrong = [a for a in _actor_actions(sentence) if not ctx.attributes(a[1], a[2])]
@@ -212,6 +225,11 @@ def _check(sentence: str, ctx: Context) -> Claim | None:
         if cover < CLAIM_COVERAGE_MIN:
             return Claim(sentence, f"solo {cover:.0%} de sus términos aparece en el documento")
     return None
+
+
+def _phrase(text: str) -> str:
+    """La negación sin el "ya": basta con que el documento diga "no puede"."""
+    return " ".join(re.sub(r"^ya\s+", "", text).split())
 
 
 def _normpos(sentence: str, i: int) -> int:
