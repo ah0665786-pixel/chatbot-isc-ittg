@@ -28,7 +28,9 @@ después esa persona u órgano (que "evalúa", "autoriza", "notifica" o "remite"
    b) Si el CONTEXTO describe procedimientos distintos (por ejemplo, dentro y fuera de plazo), \
 no mezcles sus pasos ni digas que uno "sigue los mismos pasos" que otro.
    c) No completes con deducciones ni con lo que normalmente se hace. Si el documento no dice un \
-paso o un requisito, no lo inventes y tampoco lo menciones. No digas que algo ya no se puede \
+paso o un requisito, no lo inventes y tampoco lo menciones. No escribas frases sobre lo que el \
+documento no menciona, no requiere o no exige (como "no se menciona otro requisito" o "no se \
+requieren documentos adicionales"): di solo lo que sí dice. No digas que algo ya no se puede \
 hacer si el documento no lo dice.
    d) Incluye las condiciones y excepciones que el fragmento pone al trámite que respondes, \
 aunque estén en otra oración o en el párrafo anterior: a quién aplica el trámite (por ejemplo, \
@@ -122,6 +124,37 @@ def _numbers(text: str) -> set[str]:
     return {n.strip(".,") for n in _NUM.findall(_LIST_MARK.sub("", text))}
 
 
+# Regla 5 (fuente al final). El 28-oct una respuesta terminó en "(Se mantiene la
+# excepción de los lineamientos vigentes...)" sin nombrar el documento. En vez de
+# rechazarla (otra llamada al modelo o una derivación), se agrega la fuente del
+# fragmento que más se parece a la respuesta.
+_DOC_STOP = {"del", "las", "los", "para", "pdf", "txt", "doc", "docx"}
+
+
+def _doc_label(name: str) -> str:
+    """"Manual_de_Lineamientos_TecNM.pdf" -> "Manual de Lineamientos TecNM"."""
+    return " ".join(re.sub(r"[_\-]+", " ", re.sub(r"\.\w{2,4}$", "", name)).split())
+
+
+def _cites_source(text: str, hits: Sequence[Hit]) -> bool:
+    t = guards.normalize(text)
+    for h in hits:
+        words = [w for w in re.findall(r"[a-z0-9]+", guards.normalize(_doc_label(h.chunk.doc_name)))
+                 if len(w) >= 3 and w not in _DOC_STOP]
+        if words and sum(w in t for w in words) >= min(2, len(words)):
+            return True
+    return False
+
+
+def _with_source(text: str, hits: Sequence[Hit]) -> str:
+    if not hits or _cites_source(text, hits):
+        return text
+    used = _words(text)
+    best = max(hits, key=lambda h: len(used & _words(h.chunk.text)))
+    section = f", {best.chunk.section}" if best.chunk.section else ""
+    return f"{text}\n\n(Fuente: {_doc_label(best.chunk.doc_name)}{section})"
+
+
 def _retry_note(why: str) -> str:
     return {LIST_TRUNCATED: LIST_RETRY_NOTE, CONTEXT_DUMP: CONTEXT_DUMP_NOTE}.get(why, RETRY_NOTE)
 
@@ -195,6 +228,7 @@ class RagPipeline:
             # Regla 5: los índices [n] del CONTEXTO no deben llegarle al estudiante
             # (el 28-oct se entregó una respuesta con "... 20 días hábiles) [1].")
             text = re.sub(r"[ \t]+([.,;)])", r"\1", _CITE_BRACKET.sub("", text)).strip()
+            text = _with_source(text, hits)
             return RagResult(Outcome.ANSWERED, Reason.NONE, text, hits, max_score,
                              provider, model, attempts, timings, "ok", list(drafts),
                              no_info_retries=no_info_retries[0],

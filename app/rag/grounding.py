@@ -80,12 +80,19 @@ _ACTION_RE = {
 _ACTION_RE["notificar"] = re.compile(
     r"\b(notific|inform|comunic|avis|turn|envi|canaliz)(a|an|ara|aran)\b"
     r"|\bremit(e|en|ira|iran)\b")
+# Infinitivo ("evaluar", "decidir", "remitir"): solo cuenta tras "es quien" / "el encargado de"
+_ACTION_INF = {kind: re.compile(r"\b(" + "|".join(stems) + r")(ar|er|ir)\b")
+               for kind, stems in ACTIONS.items()}
 _ACTOR_RES = [(name, re.compile(rx), key) for name, rx, key in ACTORS]
 # El actor es el sujeto de la acción si la sigue de cerca ("el Comité
 # Académico evaluará") o con un relativo ("..., quien notifica").
 _RELATIVE = re.compile(r"(quien|quienes|el cual|la cual|los cuales|las cuales|que)\s+"
                        r"((lo|la|le|les|te|se)\s+)?$")
 _MAX_GAP_WORDS = 3
+# "El Comité Académico es quien recibirá la solicitud y decidirá si procede"
+# (28-oct): con "es quien" el actor es el sujeto de todo lo que sigue en la oración.
+_IS_WHO = re.compile(r"^(es|son|sera|seran)\s+(quien|quienes|el que|la que|los que|las que|"
+                     r"el encargado|la encargada|el responsable|la responsable)\b")
 # Frases que unen procedimientos distintos o completan con lo habitual.
 _LINKING = re.compile(r"\bmism[oa]s?\s+(pasos|procedimientos?|tramites?|procesos?|requisitos)\b"
                       r"|\bresto\s+del\s+(tramite|procedimiento|proceso)\b"
@@ -104,7 +111,8 @@ _NOT_STATED_2 = re.compile(r"\bno se (menciona|especifica|indica|detalla|estable
                            r"lineamientos?|fragmentos?)\b")
 # ...y sin nombrar el documento: "No se menciona otro requisito adicional" (28-oct).
 _NOT_STATED_3 = re.compile(r"\bno se (menciona|mencionan|especifica|especifican|indica|indican|"
-                           r"detalla|establece|establecen|requiere|requieren|pide|piden)\s+"
+                           r"detalla|establece|establecen|requiere|requieren|pide|piden|"
+                           r"exige|exigen|solicita|solicitan)\s+"
                            r"(ningun|ninguna|otro|otra|otros|otras|algun|alguna|mas|"
                            r"documentos?|requisitos?|pasos?)\b")
 # "CONTEXTO" es el nombre interno de los fragmentos en el prompt: el
@@ -184,20 +192,26 @@ def _actor_actions(sentence: str) -> list[tuple[str, str, str, int]]:
     s = " ".join(guards.normalize(sentence).split())
     actors = [(m.end(), name, key) for name, rx, key in _ACTOR_RES for m in rx.finditer(s)]
     found = []
-    for kind, rx in _ACTION_RE.items():
-        for m in rx.finditer(s):
-            before = [a for a in actors if a[0] <= m.start()]
-            if not before:
-                continue  # sin actor antes: suele ser lo que hace el estudiante
-            end, name, key = max(before)
-            gap = s[end:m.start()]
-            # un inciso entre comas no corta la relación: "el Comité, a su vez, remitirá"
-            words = re.sub(r",[^,]*,", " ", gap).split()
-            subject = (_RELATIVE.search(gap.strip(" ,") + " ") is not None
-                       or (len(words) <= _MAX_GAP_WORDS and "," not in " ".join(words)
-                           and words[:1] != ["y"] and not set(words) & {"a", "al", "ante"}))
-            if subject:
-                found.append((name, key, kind, m.start()))
+    for kind in ACTIONS:
+        for rx, infinitive in ((_ACTION_RE[kind], False), (_ACTION_INF[kind], True)):
+            for m in rx.finditer(s):
+                before = [a for a in actors if a[0] <= m.start()]
+                if not before:
+                    continue  # sin actor antes: suele ser lo que hace el estudiante
+                end, name, key = max(before)
+                gap = s[end:m.start()]
+                is_who = _IS_WHO.match(gap.strip(" ,")) is not None
+                if infinitive:  # "será el encargado de autorizar"; si no, lo suele hacer el estudiante
+                    subject = is_who
+                else:
+                    # un inciso entre comas no corta la relación: "el Comité, a su vez, remitirá"
+                    words = re.sub(r",[^,]*,", " ", gap).split()
+                    subject = (is_who or _RELATIVE.search(gap.strip(" ,") + " ") is not None
+                               or (len(words) <= _MAX_GAP_WORDS and "," not in " ".join(words)
+                                   and words[:1] != ["y"]
+                                   and not set(words) & {"a", "al", "ante"}))
+                if subject:
+                    found.append((name, key, kind, m.start()))
     return found
 
 
@@ -226,7 +240,9 @@ def _check(sentence: str, ctx: Context) -> Claim | None:
         return Claim(sentence, f"atribuye a {name} una acción ({kind}) que el documento "
                                f"no le atribuye", cuts[-1] if cuts else -1)
     terms = _terms(_CITATION.sub(" ", sentence))
-    if len(terms) >= CLAIM_MIN_WORDS:
+    # La aclaración de otra unidad de plazo (regla 2) se redacta con palabras propias
+    # ("Aclaración: el documento menciona días hábiles"): no se mide por cobertura.
+    if len(terms) >= CLAIM_MIN_WORDS and not _UNIT_NOTE.search(norm):
         cover = sum(ctx.covers(w) for w in terms) / len(terms)
         if cover < CLAIM_COVERAGE_MIN:
             return Claim(sentence, f"solo {cover:.0%} de sus términos aparece en el documento")

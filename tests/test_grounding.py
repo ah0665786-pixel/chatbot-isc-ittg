@@ -335,3 +335,85 @@ def test_al_quitar_el_inicio_de_un_renglon_queda_con_mayuscula():
     assert grounding.remove(answer, claims).splitlines()[1] == (
         "2. El procedimiento ante la División de Estudios Profesionales solo aplica dentro de "
         "los 20 días hábiles.")
+
+
+# ---- ajustes tras el DESPUÉS con 332fdf5 (28-oct) --------------------------------
+# Primer intento de la corrida #4: el paso 2 atribuye al Comité una decisión
+DRAFT_4 = """Para solicitar la **baja temporal** cuando ya han transcurrido los 20 días hábiles \
+desde el inicio oficial de los cursos, el estudiante debe:
+
+1. **Manifestar por escrito su determinación** de baja al **Comité Académico**.  
+2. El Comité Académico es quien recibirá la solicitud y, de acuerdo con lo establecido, \
+decidirá si procede la baja.
+
+No se menciona ningún otro documento o requisito adicional para este caso. \
+(Manual de Lineamientos del TecNM, pág. 46)"""
+
+
+@pytest.mark.parametrize("sentence", [
+    "El Comité Académico es quien recibirá la solicitud y decidirá si procede la baja.",
+    "El Comité Académico es quien recibirá la solicitud y, de acuerdo con lo establecido, "
+    "decidirá si procede la baja.",
+    "El Comité Académico será el encargado de autorizar la baja.",
+])
+def test_es_quien_atribuye_la_accion_al_actor(sentence):
+    [claim] = grounding.unsupported(sentence, HITS, Q)[0]
+    assert "Comité Académico" in claim.reason
+
+
+def test_es_quien_con_accion_del_documento_pasa():
+    sentence = ("El Jefe(a) de la División de Estudios Profesionales es quien notifica al "
+                "Departamento de Servicios Escolares si procede la baja.")
+    assert grounding.unsupported(sentence, HITS, Q)[0] == []
+
+
+def test_corrida_4_se_corrige_sin_la_decision_del_comite(kb, cfg):
+    r = pipe(kb, cfg, ScriptedLLM(DRAFT_4, DRAFT_4)).answer(Q)
+    assert r.outcome is Outcome.ANSWERED and len(r.unsupported_claims) == 4  # 2 + 2
+    assert "decidirá" not in r.text and "No se menciona" not in r.text
+    assert "1. **Manifestar por escrito su determinación** de baja al **Comité Académico**." in r.text
+
+
+@pytest.mark.parametrize("sentence", ["No se exige ningún documento adicional.",
+                                      "No se solicitan otros requisitos."])
+def test_no_se_exige_se_detecta(sentence):
+    [claim] = grounding.unsupported(sentence, HITS, Q)[0]
+    assert "no dice" in claim.reason
+
+
+def test_instrucciones_piden_no_hablar_de_lo_que_el_documento_no_menciona():
+    assert "no menciona, no requiere o no exige" in SYSTEM_PROMPT
+    assert "di solo lo que sí dice" in SYSTEM_PROMPT
+
+
+# Corrida #7: correcta, pero sin nombrar el documento al final
+NO_SOURCE = """Para solicitar la **baja temporal** cuando ya han transcurrido los 20 días hábiles \
+desde el inicio oficial de los cursos, el estudiante debe:
+
+1. **Manifestar por escrito su determinación** al **Comité Académico**.  
+2. Cumplir con el requisito de haber **cursado al menos un semestre** en el Instituto Tecnológico.  
+
+(Se mantiene la excepción de los lineamientos vigentes sobre Servicio Social y Residencia \
+Profesional)."""
+
+
+def test_sin_fuente_se_agrega_la_del_fragmento_usado(kb, cfg):
+    llm = ScriptedLLM(NO_SOURCE)
+    r = pipe(kb, cfg, llm).answer(Q)
+    assert r.outcome is Outcome.ANSWERED and len(llm.calls) == 1  # sin otra llamada
+    assert r.text == NO_SOURCE + "\n\n(Fuente: Manual de Lineamientos TecNM, pág. 46)"
+
+
+@pytest.mark.parametrize("cita", ["(Manual de Lineamientos TecNM, pág. 46)",
+                                  "(Fuente: Manual_de_Lineamientos_TecNM.pdf)",
+                                  "(Manual de Lineamientos del TecNM)"])
+def test_con_fuente_no_se_agrega_otra(kb, cfg, cita):
+    answer = CORRECT.replace("(Manual de Lineamientos TecNM, pág. 46)", cita)
+    r = pipe(kb, cfg, ScriptedLLM(answer)).answer(Q)
+    assert r.text == answer
+
+
+def test_aclaracion_de_unidad_con_palabras_propias_pasa():
+    # Borrador del 28-oct marcado de más por cobertura (40 %)
+    sentence = "**Aclaración:** el documento menciona “días hábiles”; la pregunta habla de días naturales."
+    assert grounding.unsupported(sentence, HITS, Q)[0] == []
