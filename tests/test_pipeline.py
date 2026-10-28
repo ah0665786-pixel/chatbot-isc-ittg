@@ -299,3 +299,100 @@ def test_seguimiento_sin_historial_busca_solo_la_pregunta(kb, cfg, monkeypatch):
     seen = _searched(p, monkeypatch)
     p.retrieve("¿Y cuántas horas son?", history=[])
     assert seen[0] == "¿Y cuántas horas son?"
+
+
+# ---- NO_INFO con la respuesta en el contexto (baja temporal, 28-oct) -------------
+from app.rag.pipeline import NO_INFO_RETRY_NOTE, SYSTEM_PROMPT  # noqa: E402
+
+BAJA_Q = "¿Puedo pedir la baja temporal si ya pasaron 20 días naturales?"
+NO_INFO = "NO_INFO: el CONTEXTO habla de días hábiles, no de días naturales"
+BAJA_OK = ("La baja temporal se solicita ante la Coordinación mediante el formato de baja "
+           "temporal dentro de los primeros 20 días hábiles del semestre; el plazo se cuenta "
+           "en días hábiles, no naturales. (Reglamento Escolar.txt)")
+
+
+def test_instrucciones_piden_aclarar_otra_unidad_de_plazo_y_motivo_de_no_info():
+    assert "días hábiles" in SYSTEM_PROMPT and "naturales" in SYSTEM_PROMPT
+    assert "NO_INFO seguido de dos puntos" in SYSTEM_PROMPT
+    assert "eso NO es falta de información" in SYSTEM_PROMPT
+
+
+def test_respuesta_que_aclara_naturales_frente_a_habiles_pasa_la_validacion(kb, cfg):
+    p = pipe(kb, cfg, ScriptedLLM(GOOD))
+    ok, why = p.validate(BAJA_OK, p.retrieve(BAJA_Q), BAJA_Q)
+    assert ok, why
+
+
+def test_no_info_con_similitud_alta_reintenta_una_vez_y_responde(kb, cfg):
+    llm = ScriptedLLM(NO_INFO, BAJA_OK)
+    r = pipe(kb, cfg, llm).answer(BAJA_Q)
+    assert r.outcome is Outcome.ANSWERED and r.text == BAJA_OK
+    assert r.attempts == 2 and r.no_info_retries == 1
+    assert llm.calls[1][-1]["content"] == NO_INFO_RETRY_NOTE      # nota del reintento
+    assert llm.calls[1][-2] == {"role": "assistant", "content": NO_INFO}
+    assert r.debug == [f"[intento 1, sin información]\n{NO_INFO}"]  # se guarda el NO_INFO
+
+
+def test_si_insiste_en_no_info_deriva_y_guarda_las_dos_respuestas(kb, cfg):
+    llm = ScriptedLLM(NO_INFO, "NO_INFO: sigue sin decir nada de días naturales")
+    r = pipe(kb, cfg, llm).answer(BAJA_Q)
+    assert r.reason is Reason.NOT_IN_CONTEXT and len(llm.calls) == 2  # solo 1 reintento
+    assert r.attempts == 2 and r.no_info_retries == 1
+    assert [d.split("\n")[0] for d in r.debug] == ["[intento 1, sin información]",
+                                                   "[intento 2, sin información]"]
+    assert r.detail == "NO_INFO: sigue sin decir nada de días naturales"
+
+
+def test_no_reintenta_si_no_queda_presupuesto(kb, cfg):
+    # RNF-FI-02: con menos de NO_INFO_RETRY_MIN_S del presupuesto, se deriva sin reintentar
+    p = pipe(kb, cfg, ScriptedLLM(NO_INFO, BAJA_OK))
+    ticks = iter([0.0, cfg.llm_total_budget - 2.0])  # deadline; luego quedan 2 s
+    p._clock = lambda: next(ticks)
+    r = p.answer(BAJA_Q)
+    assert r.reason is Reason.NOT_IN_CONTEXT and r.attempts == 1 and r.no_info_retries == 0
+    assert len(p.llm.calls) == 1
+
+
+def test_proveedor_caido_en_el_reintento_deriva_como_sin_informacion(kb, cfg):
+    class NoInfoThenDown:
+        calls = 0
+        def chat(self, messages, temperature=0.3, max_tokens=900, deadline=None):
+            NoInfoThenDown.calls += 1
+            if NoInfoThenDown.calls == 1:
+                from app.ports import LLMReply
+                return LLMReply(NO_INFO, "fake", "fake-model")
+            raise LLMUnavailable("groq: HTTP 429")
+    r = pipe(kb, cfg, NoInfoThenDown()).answer(BAJA_Q)
+    # La primera respuesta ya era válida (NO_INFO): no se reporta como falla técnica
+    assert r.reason is Reason.NOT_IN_CONTEXT and r.detail == NO_INFO and r.attempts == 1
+
+
+def test_no_reintenta_por_no_info_si_la_busqueda_no_paso_el_umbral(kb, cfg):
+    llm = ScriptedLLM(NO_INFO)
+    r = pipe(kb, cfg, llm).answer("¿Cuál es la capital de Francia?")
+    assert r.reason is Reason.LOW_SIMILARITY and not llm.calls
+
+
+def test_reintento_por_no_info_y_validacion_tienen_su_propio_tope(kb, cfg):
+    invented = ("La baja temporal se solicita dentro de los primeros 45 días hábiles del "
+                "semestre. (Reglamento Escolar.txt)")
+    # NO_INFO -> reintento -> respuesta inventada (falla validación) -> 2.º intento bueno
+    r = pipe(kb, cfg, ScriptedLLM(NO_INFO, invented, BAJA_OK)).answer(BAJA_Q)
+    assert r.outcome is Outcome.ANSWERED and r.attempts == 3 and r.no_info_retries == 1
+    # y si la validación vuelve a fallar, se deriva: a lo más 3 llamadas al modelo
+    llm = ScriptedLLM(NO_INFO, invented, invented)
+    r = pipe(kb, cfg, llm).answer(BAJA_Q)
+    assert r.reason is Reason.VALIDATION_FAILED and len(llm.calls) == 3
+
+
+def test_metrica_guarda_respuestas_del_modelo_y_reintentos(kb, cfg, tmp_path):
+    import json
+    from app.adapters.db_sqlite import SqliteRepository
+    from app.service import ConversationService
+    repo = SqliteRepository(tmp_path / "app.db")
+    svc = ConversationService(cfg, repo, pipe(kb, cfg, ScriptedLLM(NO_INFO, BAJA_OK)))
+    svc.handle_message("tg-1", "Ana", BAJA_Q)
+    row = repo._conn.execute(
+        "SELECT respuestas_modelo, reintentos_sin_info, intentos, resultado FROM metricas").fetchone()
+    assert json.loads(row["respuestas_modelo"]) == [f"[intento 1, sin información]\n{NO_INFO}"]
+    assert (row["reintentos_sin_info"], row["intentos"], row["resultado"]) == (1, 2, "answered")

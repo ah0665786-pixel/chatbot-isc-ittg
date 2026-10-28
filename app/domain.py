@@ -61,7 +61,8 @@ class RagResult:
     attempts: int = 0               # generaciones intentadas (1 o 2)
     timings: dict[str, float] = field(default_factory=dict)
     detail: str = ""
-    debug: list[str] = field(default_factory=list)  # borradores rechazados, para diagnóstico
+    debug: list[str] = field(default_factory=list)  # respuestas del modelo no usadas, para diagnóstico
+    no_info_retries: int = 0        # reintentos porque el modelo dijo NO_INFO (0 o 1)
 
     @property
     def derived(self) -> bool:

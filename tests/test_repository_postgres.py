@@ -343,3 +343,43 @@ def test_migracion_agrega_la_columna_tema_sin_perder_datos():
         assert row.tema is None and row.tiempo_respuesta_seg == 1.0
     finally:
         repo.close()
+
+
+def test_guarda_respuestas_del_modelo_y_reintentos_sin_info():
+    import json
+    repo = _fresh_repo()
+    cid = repo.get_or_create_conversation(repo.get_or_create_user("12345"))
+    result = RagResult(Outcome.DERIVED, Reason.NOT_IN_CONTEXT, "deriva", [], 0.87, "groq", "m", 2,
+                       {"total": 1.1}, "NO_INFO: x", ["[intento 1, sin información]\nNO_INFO: x"],
+                       no_info_retries=1)
+    mid = repo.record_metric(cid, None, result, tema="bajas")
+    with repo._conn, repo._conn.cursor() as c:
+        c.execute("SELECT respuestas_modelo, reintentos_sin_info FROM metricas WHERE id_metrica=%s",
+                  (mid,))
+        row = c.fetchone()
+    assert json.loads(row["respuestas_modelo"]) == ["[intento 1, sin información]\nNO_INFO: x"]
+    assert row["reintentos_sin_info"] == 1
+    repo.close()
+
+
+def test_migracion_agrega_respuestas_modelo_y_reintentos_sin_perder_datos():
+    from app.adapters.db_postgres import PostgresRepository
+    repo = _fresh_repo()
+    cid = repo.get_or_create_conversation(repo.get_or_create_user("12345"))
+    repo.record_metric(cid, None, RagResult(Outcome.ANSWERED, Reason.NONE, "r", [], 0.9, "g", "m",
+                                            1, {"total": 1.0}, "ok", []), tema="bajas")
+    with repo._conn, repo._conn.cursor() as c:
+        c.execute("ALTER TABLE metricas DROP COLUMN respuestas_modelo")
+        c.execute("ALTER TABLE metricas DROP COLUMN reintentos_sin_info")
+    repo.close()
+    repo = PostgresRepository(DSN)  # al arrancar se agregan (solo si faltan)
+    try:
+        with repo._conn, repo._conn.cursor() as c:
+            c.execute("SELECT count(*) AS n, min(reintentos_sin_info) AS r, "
+                      "max(respuestas_modelo) AS m FROM metricas")
+            row = c.fetchone()
+        assert (row["n"], row["r"], row["m"]) == (1, 0, None)
+        [m] = repo.metric_rows()
+        assert m.tema == "bajas" and m.tiempo_respuesta_seg == 1.0
+    finally:
+        repo.close()

@@ -251,3 +251,24 @@ def test_avisos_de_antes_reciben_las_columnas_nuevas(tmp_path):
     [old] = repo.notices()
     assert (old["id_aviso"], old["tipo_aviso"], old["fecha_resumen"]) == ("a1", "inmediato", None)
     repo.close()
+
+
+def test_base_existente_recibe_respuestas_modelo_y_reintentos(tmp_path):
+    # Base con el esquema anterior a estas columnas: al abrirla se agregan, sin perder datos
+    import sqlite3
+    from app.adapters.db_sqlite import SCHEMA
+    path = tmp_path / "vieja.db"
+    con = sqlite3.connect(path)
+    con.executescript(SCHEMA)
+    con.executescript(
+        "INSERT INTO usuarios VALUES ('u','tg',NULL,NULL,'estudiante','2026-10-01',1);"
+        "INSERT INTO conversaciones VALUES ('c','u','2026-10-01',NULL,'telegram');"
+        "INSERT INTO metricas(id_metrica,id_conversacion,timestamp,resultado) "
+        "  VALUES ('x','c','2026-10-01T10:00:01+00:00','derived');")
+    con.commit(); con.close()
+    repo = SqliteRepository(path)
+    row = repo._conn.execute(
+        "SELECT respuestas_modelo, reintentos_sin_info FROM metricas WHERE id_metrica='x'").fetchone()
+    assert row["respuestas_modelo"] is None and row["reintentos_sin_info"] == 0
+    repo.close()
+    SqliteRepository(path).close()  # abrirla otra vez no intenta agregarlas de nuevo

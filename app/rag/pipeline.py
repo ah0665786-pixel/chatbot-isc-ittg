@@ -22,7 +22,12 @@ Computacionales del Instituto Tecnológico de Tuxtla Gutiérrez (ITTG).
 Reglas obligatorias:
 1. Responde SOLO con la información de los fragmentos de CONTEXTO. No uses conocimiento externo \
 ni inventes fechas, requisitos, montos o plazos.
-2. Si el CONTEXTO no contiene la respuesta, responde exactamente: NO_INFO
+2. Si el CONTEXTO no contiene la respuesta, responde NO_INFO seguido de dos puntos y, en una \
+sola línea, qué le falta al CONTEXTO (por ejemplo "NO_INFO: el CONTEXTO no menciona costos"). \
+Si la pregunta usa otra unidad o calificativo de plazo que el CONTEXTO (por ejemplo "días \
+naturales" cuando el documento dice "días hábiles"), eso NO es falta de información: responde \
+con lo que dice el CONTEXTO y aclara la diferencia (por ejemplo "el plazo es de 20 días \
+hábiles, no naturales").
 3. Redacta en español formal, claro y breve (máximo 150 palabras), apto para leer en el celular. \
 Usa pasos numerados cuando expliques un procedimiento.
 4. Si la pregunta pide opciones, tipos, modalidades, requisitos o documentos (p. ej. "¿cuáles son \
@@ -46,6 +51,17 @@ CONTEXT_DUMP_NOTE = ("Copiaste fragmentos del CONTEXTO con sus índices [n]. No 
                      "CONTEXTO: responde la pregunta con tus palabras usando solo sus datos; si "
                      "no hay una pregunta que responder con él, responde NO_INFO.")
 CONTEXT_DUMP = "reproduce el formato interno del CONTEXTO ([n] (documento) ...)"
+# Reintento cuando el modelo dice NO_INFO aunque la búsqueda sí pasó el umbral:
+# el 28-oct dijo NO_INFO con la respuesta en el fragmento [1] (baja temporal
+# fuera de plazo, Manual pág. 46) y al repetir la misma consulta respondió bien.
+NO_INFO_RETRY_NOTE = ("Revisa de nuevo cada fragmento del CONTEXTO. Si alguno responde la "
+                      "pregunta, aunque sea en parte o con otra unidad o calificativo (por ejemplo "
+                      "días hábiles en vez de naturales), responde con lo que dice y aclara la "
+                      "diferencia. Solo si de verdad ningún fragmento la responde, contesta "
+                      "NO_INFO: y el motivo.")
+# Tiempo mínimo que debe quedar del presupuesto (RNF-FI-02) para intentar el
+# reintento por NO_INFO; si no alcanza, se deriva con la primera respuesta.
+NO_INFO_RETRY_MIN_S = 5.0
 LIST_TRUNCATED = "resumió la lista con 'etc.' o 'entre otros'"
 # Marcas de lista recortada (regla 4). Solo cuentan si el CONTEXTO no las
 # trae: el Manual a veces dice "etc." y ahí copiarlo es correcto.
@@ -136,13 +152,14 @@ class RagPipeline:
             self._watcher.maybe_reload(self)
 
         drafts: list[str] = []
+        no_info_retries = [0]  # reintentos por NO_INFO (0 o 1), se guarda en metricas
 
         def derive(reason: Reason, hits=None, max_score=0.0, category=None, detail="",
                    provider="", model="", attempts=0) -> RagResult:
             timings["total"] = time.perf_counter() - t0
             return RagResult(Outcome.DERIVED, reason, derivation_message(reason, self.cfg, category),
                              hits or [], max_score, provider, model, attempts, timings, detail,
-                             list(drafts))
+                             list(drafts), no_info_retries=no_info_retries[0])
 
         if guards.looks_like_injection(q):
             return derive(Reason.INJECTION)
@@ -168,31 +185,55 @@ class RagPipeline:
         # Un solo tope para los 2 intentos (RNF-FI-02): si el primero se tardó,
         # el segundo solo tiene lo que sobra, no otro presupuesto completo.
         deadline = self._clock() + self.cfg.llm_total_budget
-        for attempt in (1, 2):
+        # Hasta 2 intentos por validación fallida y, además, a lo más 1 reintento
+        # cuando el modelo dice NO_INFO pese a que la búsqueda pasó el umbral.
+        attempt = validation_failures = 0
+        no_info_text = ""  # primera respuesta NO_INFO, por si el reintento no se puede hacer
+        while True:
+            attempt += 1
             t = time.perf_counter()
             try:
                 reply = self.llm.chat(messages, temperature=self.cfg.llm_temperature,
                                       deadline=deadline)
             except LLMUnavailable as e:
+                if no_info_text:  # falló el reintento: vale la respuesta NO_INFO que ya había
+                    return derive(Reason.NOT_IN_CONTEXT, hits, max_score, detail=no_info_text,
+                                  provider=provider, model=model, attempts=attempt - 1)
                 return derive(Reason.LLM_UNAVAILABLE, hits, max_score, detail=str(e),
                               provider=provider, model=model, attempts=attempt - 1)
             timings[f"llm_{attempt}"] = time.perf_counter() - t
             provider, model = reply.provider, reply.model
             text = reply.text.strip()
             if text.upper().startswith("NO_INFO"):
-                return derive(Reason.NOT_IN_CONTEXT, hits, max_score, provider=provider,
-                              model=model, attempts=attempt)
+                # Se guarda siempre (diagnóstico): la regla 2 pide el motivo tras "NO_INFO:"
+                drafts.append(f"[intento {attempt}, sin información]\n{text}")
+                remaining = deadline - self._clock()
+                if (not no_info_text and max_score >= self.cfg.sim_threshold
+                        and remaining >= NO_INFO_RETRY_MIN_S):
+                    no_info_text = text
+                    no_info_retries[0] = 1
+                    log.info("el modelo dijo NO_INFO con similitud %.3f >= umbral %s: "
+                             "se reintenta una vez (quedan %.0f s)", max_score,
+                             self.cfg.sim_threshold, remaining)
+                    messages = messages + [{"role": "assistant", "content": text},
+                                           {"role": "user", "content": NO_INFO_RETRY_NOTE}]
+                    continue
+                return derive(Reason.NOT_IN_CONTEXT, hits, max_score, detail=text,
+                              provider=provider, model=model, attempts=attempt)
             ok, why = self.validate(text, hits, q)
             if ok:
                 timings["total"] = time.perf_counter() - t0
                 return RagResult(Outcome.ANSWERED, Reason.NONE, text, hits, max_score,
-                                 provider, model, attempt, timings, "ok", list(drafts))
+                                 provider, model, attempt, timings, "ok", list(drafts),
+                                 no_info_retries=no_info_retries[0])
             drafts.append(f"[intento {attempt}, rechazado: {why}]\n{text}")
             log.info("validación falló (intento %d): %s", attempt, why)
+            validation_failures += 1
+            if validation_failures >= 2:
+                return derive(Reason.VALIDATION_FAILED, hits, max_score, detail=why,
+                              provider=provider, model=model, attempts=attempt)
             messages = messages + [{"role": "assistant", "content": text},
                                    {"role": "user", "content": _retry_note(why)}]
-        return derive(Reason.VALIDATION_FAILED, hits, max_score, detail=why,
-                      provider=provider, model=model, attempts=2)
 
     def _build_messages(self, q: str, hits: Sequence[Hit], history: Sequence[dict]) -> list[dict]:
         ctx = "\n\n".join(f"[{i}] ({h.chunk.doc_name}"

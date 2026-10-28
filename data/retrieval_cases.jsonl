@@ -52,6 +52,12 @@
 {"q": "¿El inglés cuenta como actividad complementaria?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["lengua extranjera no es actividad complementaria"]}
 {"q": "¿Cómo se acredita una actividad complementaria?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["para que se acredite una actividad complementaria", "constancia de liberacion de actividades complementarias"]}
 {"q": "¿Cuántos créditos puede valer como máximo una sola actividad complementaria?", "answerable": true, "tema": "actividades complementarias", "expected_terms": ["mas de dos creditos", "mas de 2 creditos"]}
+{"q": "Que necesito para realizar una baja temporal si ya paso el tiempo de 20 dias naturales", "answerable": true, "tema": "bajas", "expected_terms": ["no se realizo en los 20 dias habiles", "determinacion por escrito al comite academico"]}
+{"q": "¿Puedo pedir la baja temporal después de los 20 días hábiles?", "answerable": true, "tema": "bajas", "expected_terms": ["no se realizo en los 20 dias habiles", "determinacion por escrito al comite academico"]}
+{"q": "¿Cómo solicito una baja temporal extemporánea?", "answerable": true, "tema": "bajas", "expected_terms": ["no se realizo en los 20 dias habiles", "determinacion por escrito al comite academico"]}
+{"q": "Se me pasó el plazo para la baja temporal, ¿qué hago?", "answerable": true, "tema": "bajas", "expected_terms": ["no se realizo en los 20 dias habiles", "determinacion por escrito al comite academico"]}
+{"q": "¿Qué hago si quiero darme de baja temporal fuera de plazo?", "answerable": true, "tema": "bajas", "expected_terms": ["no se realizo en los 20 dias habiles", "determinacion por escrito al comite academico"]}
+{"q": "Ya pasaron los 20 días del semestre, ¿todavía puedo darme de baja temporal?", "answerable": true, "tema": "bajas", "expected_terms": ["no se realizo en los 20 dias habiles", "determinacion por escrito al comite academico"]}
 {"q": "¿Cuál es la capital de Francia?", "answerable": false}
 {"q": "¿Cuánto cuesta el estacionamiento del tecnológico?", "answerable": false}
 {"q": "Dame una receta de enchiladas", "answerable": false}
