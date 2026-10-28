@@ -102,6 +102,11 @@ _NOT_STATED = re.compile(r"\b(el|los|la|las)\s+(documentos?|contexto|manual|regl
 _NOT_STATED_2 = re.compile(r"\bno se (menciona|especifica|indica|detalla|establece|requiere|"
                            r"requieren|piden?)\b[^.;]*\b(contexto|documentos?|manual|reglamento|"
                            r"lineamientos?|fragmentos?)\b")
+# ...y sin nombrar el documento: "No se menciona otro requisito adicional" (28-oct).
+_NOT_STATED_3 = re.compile(r"\bno se (menciona|mencionan|especifica|especifican|indica|indican|"
+                           r"detalla|establece|establecen|requiere|requieren|pide|piden)\s+"
+                           r"(ningun|ninguna|otro|otra|otros|otras|algun|alguna|mas|"
+                           r"documentos?|requisitos?|pasos?)\b")
 # "CONTEXTO" es el nombre interno de los fragmentos en el prompt: el
 # estudiante no debe verlo.
 _INTERNAL = re.compile(r"\bcontexto\b")
@@ -203,7 +208,8 @@ def _check(sentence: str, ctx: Context) -> Claim | None:
         m = rx.search(norm)
         if m and m.group(0) not in ctx.norm:
             return Claim(sentence, f"{why}: \"{m.group(0)}\"")
-    if (_NOT_STATED.search(norm) or _NOT_STATED_2.search(norm)) and not _UNIT_NOTE.search(norm):
+    if (any(rx.search(norm) for rx in (_NOT_STATED, _NOT_STATED_2, _NOT_STATED_3))
+            and not _UNIT_NOTE.search(norm)):
         return Claim(sentence, "menciona algo que el documento no dice")
     m = _DENIAL.search(norm)
     if m and _phrase(m.group(0)) not in ctx.norm:
@@ -290,6 +296,8 @@ def remove(answer: str, claims: Sequence[Claim]) -> str:
             step = 0  # otro bloque: una lista que siga empieza de nuevo en 1
         if not kept:
             continue
+        if len(kept) < len(sentences) and kept[0][:1].islower():
+            kept[0] = kept[0][0].upper() + kept[0][1:]  # "2. el procedimiento..." -> "2. El..."
         if re.match(r"\s*\d+[.)]", prefix):
             step += 1
             prefix = re.sub(r"\d+", str(step), prefix, count=1)

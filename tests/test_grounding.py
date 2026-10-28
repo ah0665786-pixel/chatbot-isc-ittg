@@ -273,3 +273,65 @@ def test_respuesta_que_niega_el_tramite_deriva(kb, cfg):
         "¿Puedo pedir la baja temporal después de los 20 días hábiles?")
     assert r.reason is Reason.VALIDATION_FAILED and "niega" in r.detail
     assert check_facts(denial, _facts())[1]  # también lo cuenta la evaluación
+
+
+# ---- ajustes tras el DESPUÉS del 28-oct (3 de 10 derivaron por "【1】") ----------
+CITED = ("Necesitas manifestar por escrito tu determinación de baja al Comité Académico cuando "
+         "la solicitud no se haya realizado dentro de los 20 días hábiles{marca}. "
+         "(Manual de Lineamientos del TecNM, pág. 46)")
+
+
+@pytest.mark.parametrize("marca", ["【1】", "【1†L1-L4】", " 【3†L10-L12】"])
+def test_marcas_de_cita_del_modelo_no_son_cifras_ni_llegan_al_estudiante(kb, cfg, marca):
+    llm = ScriptedLLM(CITED.format(marca=marca))
+    r = pipe(kb, cfg, llm).answer(Q)
+    assert r.outcome is Outcome.ANSWERED and len(llm.calls) == 1
+    assert "【" not in r.text and r.text == CITED.format(marca="")
+    ok, why = pipe(kb, cfg, llm).validate(CITED.format(marca=marca), HITS, Q)
+    assert ok, why
+
+
+def test_indice_suelto_no_llega_al_estudiante(kb, cfg):
+    answer = CITED.format(marca=" [1]")
+    r = pipe(kb, cfg, ScriptedLLM(answer)).answer(Q)
+    assert r.outcome is Outcome.ANSWERED and "[1]" not in r.text
+    assert r.text == CITED.format(marca="")
+
+
+def test_volcado_del_contexto_se_sigue_rechazando_aunque_se_quiten_indices(kb, cfg):
+    dump = ("[1] (Manual_de_Lineamientos_TecNM.pdf, pág. 46) Si la solicitud no se realizó en "
+            "los 20 días hábiles, el estudiante debe manifestar su determinación por escrito al "
+            "Comité Académico.")
+    r = pipe(kb, cfg, ScriptedLLM(dump)).answer(Q)
+    assert r.reason is Reason.VALIDATION_FAILED and "formato interno" in r.detail
+
+
+@pytest.mark.parametrize("sentence", [
+    "2. No se menciona otro requisito adicional;",       # corrida #3 del 28-oct
+    "No se requieren documentos adicionales.",
+    "No se especifica ningún formato para el escrito.",
+])
+def test_no_se_menciona_otro_requisito_se_detecta(sentence):
+    [claim] = grounding.unsupported(sentence, HITS, Q)[0]
+    assert "no dice" in claim.reason
+
+
+def test_no_se_menciona_con_aclaracion_de_unidad_pasa():
+    sentence = "No se mencionan días naturales: el plazo es de 20 días hábiles."
+    assert grounding.unsupported(sentence, HITS, Q)[0] == []
+
+
+def test_instrucciones_piden_a_quien_aplica_el_tramite():
+    assert "a quién aplica el trámite" in SYSTEM_PROMPT
+    assert "aunque estén en otra oración" in SYSTEM_PROMPT
+
+
+def test_al_quitar_el_inicio_de_un_renglon_queda_con_mayuscula():
+    answer = ("1. Manifiesta tu determinación por escrito al Comité Académico.\n"
+              "2. No se menciona otro requisito adicional; el procedimiento ante la División "
+              "de Estudios Profesionales solo aplica dentro de los 20 días hábiles.\n"
+              "(Manual de Lineamientos TecNM, pág. 46)")
+    claims, _ = grounding.unsupported(answer, HITS, Q)
+    assert grounding.remove(answer, claims).splitlines()[1] == (
+        "2. El procedimiento ante la División de Estudios Profesionales solo aplica dentro de "
+        "los 20 días hábiles.")

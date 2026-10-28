@@ -30,8 +30,9 @@ no mezcles sus pasos ni digas que uno "sigue los mismos pasos" que otro.
    c) No completes con deducciones ni con lo que normalmente se hace. Si el documento no dice un \
 paso o un requisito, no lo inventes y tampoco lo menciones. No digas que algo ya no se puede \
 hacer si el documento no lo dice.
-   d) Incluye las condiciones y excepciones que el fragmento pone a lo que respondes (a quién \
-aplica, qué casos quedan fuera).
+   d) Incluye las condiciones y excepciones que el fragmento pone al trámite que respondes, \
+aunque estén en otra oración o en el párrafo anterior: a quién aplica el trámite (por ejemplo, \
+"todo estudiante que haya cursado...") y qué casos quedan fuera.
 2. Si el CONTEXTO no contiene la respuesta, responde NO_INFO seguido de dos puntos y, en una \
 sola línea, qué le falta al CONTEXTO (por ejemplo "NO_INFO: el CONTEXTO no menciona costos"). \
 Si la pregunta usa otra unidad o calificativo de plazo que el CONTEXTO (por ejemplo "días \
@@ -99,6 +100,10 @@ _NUM = re.compile(r"\d[\d.,/:-]*\d|\d")
 # contexto) y "pág. 14" (etiqueta de página que YO copié del fragmento).
 # Sin esto, cualquier cita correcta de fuente se veía como número inventado.
 _CITE_BRACKET = re.compile(r"\[\d+\]")
+# Marcas de cita propias del modelo: "【1】", "【1†L1-L4】". El 28-oct derivaron 3 de
+# 10 respuestas correctas porque el "1" y el "4" contaban como cifras inventadas.
+# Nunca son contenido: se quitan antes de validar y no le llegan al estudiante.
+_MODEL_CITE = re.compile(r"\s*【[^】]*】")
 # Formato interno con el que _build_messages arma el CONTEXTO: "[1] (doc.pdf,
 # pág. 3) texto". Una línea que empieza así, o varias líneas que empiezan con
 # "[n]", es un volcado del contexto (caso B8 del red-team), no una respuesta.
@@ -150,7 +155,7 @@ class RagPipeline:
             return False, CONTEXT_DUMP
         context = " ".join(h.chunk.text for h in hits) + " " + question
         body = re.sub(r"\([^)]*\)\s*\.?\s*$", "", answer.strip())  # quita "(Fuente: ...)" final
-        body = _CITE_BRACKET.sub("", body)  # quita "[3]" (índice de cita)
+        body = _CITE_BRACKET.sub("", _MODEL_CITE.sub("", body))  # quita "[3]" y "【1†L1-L4】"
         body = _CITE_PAGE.sub("", body)     # quita "pág. 14" (referencia de página)
         truncated = set(_TRUNCATION.findall(guards.normalize(body)))
         if truncated - set(_TRUNCATION.findall(guards.normalize(context))):
@@ -187,6 +192,9 @@ class RagPipeline:
 
         def answered(text: str, attempts: int) -> RagResult:
             timings["total"] = time.perf_counter() - t0
+            # Regla 5: los índices [n] del CONTEXTO no deben llegarle al estudiante
+            # (el 28-oct se entregó una respuesta con "... 20 días hábiles) [1].")
+            text = re.sub(r"[ \t]+([.,;)])", r"\1", _CITE_BRACKET.sub("", text)).strip()
             return RagResult(Outcome.ANSWERED, Reason.NONE, text, hits, max_score,
                              provider, model, attempts, timings, "ok", list(drafts),
                              no_info_retries=no_info_retries[0],
@@ -270,7 +278,7 @@ class RagPipeline:
                               provider=provider, model=model, attempts=attempt - 1)
             timings[f"llm_{attempt}"] = time.perf_counter() - t
             provider, model = reply.provider, reply.model
-            text = reply.text.strip()
+            text = _MODEL_CITE.sub("", reply.text).strip()
             if text.upper().startswith("NO_INFO"):
                 # Se guarda siempre (diagnóstico): la regla 2 pide el motivo tras "NO_INFO:"
                 drafts.append(f"[intento {attempt}, sin información]\n{text}")
