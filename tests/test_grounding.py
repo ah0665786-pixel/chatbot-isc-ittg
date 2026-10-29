@@ -417,3 +417,28 @@ def test_aclaracion_de_unidad_con_palabras_propias_pasa():
     # Borrador del 28-oct marcado de más por cobertura (40 %)
     sentence = "**Aclaración:** el documento menciona “días hábiles”; la pregunta habla de días naturales."
     assert grounding.unsupported(sentence, HITS, Q)[0] == []
+
+
+# ---- fuente agregada cuando hay fragmentos de dos documentos ----------------------
+REGLAMENTO_HIT = Hit(Chunk("reglamento-estudiantes", "Reglamento de Estudiantes TecNM.pdf", 7,
+                           "XIII. Baja temporal. Es el trámite que realiza el/la estudiante en el "
+                           "nivel educativo en el que está inscrito/a, autorizado por el TecNM, "
+                           "para suspender durante un periodo lectivo sus estudios.", "pág. 5"),
+                     0.866)
+TWO_DOCS = [HITS[0], REGLAMENTO_HIT, HITS[1]]  # Manual, Reglamento, Manual
+
+
+@pytest.mark.parametrize("answer,expected", [
+    # usa el Reglamento (definición de baja temporal) aunque el Manual quedó primero
+    ("La baja temporal es el trámite que realiza el estudiante en el nivel educativo en el que "
+     "está inscrito, autorizado por el TecNM, para suspender durante un periodo lectivo sus "
+     "estudios.", "(Fuente: Reglamento de Estudiantes TecNM, pág. 5)"),
+    # usa el Manual (fuera de plazo, al Comité Académico)
+    ("Si la solicitud no se realizó en los 20 días hábiles, el estudiante debe manifestar su "
+     "determinación por escrito al Comité Académico.",
+     "(Fuente: Manual de Lineamientos TecNM, pág. 46)"),
+])
+def test_fuente_agregada_cita_el_documento_usado(kb, cfg, answer, expected):
+    r = pipe(kb, cfg, ScriptedLLM(answer), hits=TWO_DOCS).answer(Q)
+    assert r.outcome is Outcome.ANSWERED
+    assert r.text == f"{answer}\n\n{expected}"
