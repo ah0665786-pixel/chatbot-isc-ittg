@@ -121,8 +121,11 @@ _INTERNAL = re.compile(r"\bcontexto\b")
 # Negar lo que el documento no niega: el 28-oct el modelo respondió "pasado ese
 # plazo ya no tiene derecho a solicitarla", cuando el Manual dice que fuera de
 # plazo se manifiesta al Comité Académico.
-_DENIAL = re.compile(r"\b(ya\s+no|no)\s+(es\s+posible|se\s+puede|puede[sn]?|podra[sn]?|"
-                     r"tiene[sn]?\s+derecho|tendra[sn]?\s+derecho|procede|aplica)\b")
+# Un "no puede" a secas suele ser un límite que el documento sí pone ("no puede
+# tener más de 2 créditos", 29-oct, derivó de más): solo cuenta con "ya no".
+_DENIAL = re.compile(r"\bya\s+no\s+(es\s+posible|se\s+puede|puede[sn]?|podra[sn]?|"
+                     r"tiene[sn]?\s+derecho|tendra[sn]?\s+derecho|procede|aplica)\b"
+                     r"|\bno\s+(es\s+posible|tiene[sn]?\s+derecho|tendra[sn]?\s+derecho|procede)\b")
 _UNIT_NOTE = re.compile(r"\b(habil|habiles|natural|naturales|calendario)\b")
 
 _STOP = set("""para como este esta esto estos estas donde cuando tiene tienen debe deben puede

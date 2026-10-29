@@ -442,3 +442,16 @@ def test_fuente_agregada_cita_el_documento_usado(kb, cfg, answer, expected):
     r = pipe(kb, cfg, ScriptedLLM(answer), hits=TWO_DOCS).answer(Q)
     assert r.outcome is Outcome.ANSWERED
     assert r.text == f"{answer}\n\n{expected}"
+
+
+def test_limite_que_el_documento_si_pone_no_es_negacion():
+    # 29-oct: "¿Cuántos créditos de actividades complementarias necesito?" derivó de más.
+    # El lineamiento dice "no deben de tener más de 2 créditos".
+    hit = Hit(Chunk("acom", "Lineamiento-para-Acreditacion-de-Actividades-Complementarias.pdf", 2,
+                    "Para cada una de las actividades complementarias autorizadas por el plantel, "
+                    "no deben de tener más de 2 créditos asignados. El cumplimiento de los 5 "
+                    "créditos debe realizarse dentro de los seis primeros semestres.", "pág. 2"),
+              0.85)
+    sentence = ("Además, cada actividad complementaria autorizada no puede tener más de 2 "
+                "créditos.")
+    assert grounding.unsupported(sentence, [hit], "¿Cuántos créditos necesito?")[0] == []
