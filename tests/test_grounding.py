@@ -593,3 +593,26 @@ def test_despues_de_un_reintento_por_validacion_no_se_pide_la_condicion(kb, cfg)
     llm = ScriptedLLM(invented, RES_SIN, RES_CON)
     r = pipe(kb, cfg, llm, hits=RES_HITS).answer(RES_Q)
     assert r.text == RES_SIN and len(llm.calls) == 2
+
+
+def test_condicion_de_baja_se_pide_sin_el_plazo_de_20_dias():
+    # 31-oct: con la oración completa el modelo escribía "normalmente deben hacerlo
+    # dentro de los 20 días hábiles" en la respuesta de la baja FUERA de plazo
+    [cond] = grounding.omitted_conditions(BAJA_SIN, HITS, Q)
+    assert cond == ("Todo estudiante que haya cursado al menos un semestre en el Instituto, "
+                    "tiene derecho a solicitar baja temporal")
+
+
+def test_deduccion_despues_de_una_coma_se_recorta_sin_perder_la_condicion():
+    answer = ("1. Manifiesta por escrito tu determinación de baja al Comité Académico.\n"
+              "*Condición:* Sólo los estudiantes que hayan cursado al menos un semestre en el "
+              "Instituto pueden solicitar la baja temporal, y normalmente deben hacerlo dentro de "
+              "los 20 días hábiles a partir del inicio oficial de los cursos.\n"
+              "(Fuente: Manual de Lineamientos del TecNM, pág. 46)")
+    claims, _ = grounding.unsupported(answer, HITS, Q)
+    [claim] = claims
+    assert "normalmente" in claim.reason and claim.cut_at > 0
+    fixed = grounding.remove(answer, claims)
+    assert ("*Condición:* Sólo los estudiantes que hayan cursado al menos un semestre en el "
+            "Instituto pueden solicitar la baja temporal.") in fixed
+    assert "normalmente" not in fixed

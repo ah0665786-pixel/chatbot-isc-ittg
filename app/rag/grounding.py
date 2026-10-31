@@ -224,7 +224,11 @@ def _check(sentence: str, ctx: Context) -> Claim | None:
                     (_SPECULATION, "completa con lo habitual o una deducción")):
         m = rx.search(norm)
         if m and m.group(0) not in ctx.norm:
-            return Claim(sentence, f"{why}: \"{m.group(0)}\"")
+            # "... pueden solicitar la baja temporal, y normalmente deben ..." (31-oct):
+            # si la frase va después de una coma, basta con quitar desde ahí.
+            cuts = [c.start() for c in re.finditer(r",\s", sentence)
+                    if _normpos(sentence, c.start()) < m.start()]
+            return Claim(sentence, f"{why}: \"{m.group(0)}\"", cuts[-1] if cuts else -1)
     if (any(rx.search(norm) for rx in (_NOT_STATED, _NOT_STATED_2, _NOT_STATED_3))
             and not _UNIT_NOTE.search(norm)):
         return Claim(sentence, "menciona algo que el documento no dice")
@@ -381,6 +385,20 @@ def _clean_condition(sentence: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _condition_text(sentence: str, norm: str) -> str:
+    """Lo que se le pide incluir al modelo. De quién puede hacer el trámite, solo
+    hasta el trámite: la oración del Manual sigue con "dentro de los 20 días
+    hábiles", y en la baja fuera de plazo el modelo la copiaba entera o escribía
+    "normalmente deben hacerlo dentro de los 20 días hábiles" (31-oct)."""
+    text = _clean_condition(sentence)
+    if _ELIGIBILITY.search(norm):
+        m = re.search(r"^.*?\b(?:solicitar|realizar|cursar|tramitar|presentar)\s+"
+                      r"(?:la |el |su )?\S+\s+\S+", text, re.IGNORECASE)
+        if m:
+            return m.group(0).rstrip(" ,;")
+    return text
+
+
 def _relevant_condition(norm: str, i: int, used: list[int], answer: str, question: str) -> bool:
     if _ELIGIBILITY.search(norm):
         m = _PROCEDURE.search(norm)
@@ -422,5 +440,5 @@ def omitted_conditions(answer: str, hits: Sequence[Hit], question: str) -> list[
             # el mismo lineamiento suele venir en dos documentos (Manual y Lineamiento)
             if any(len(own & k) / len(own | k) >= 0.5 for _, k in found):
                 continue
-            found.append((_clean_condition(s), own))
+            found.append((_condition_text(s, norm), own))
     return [s for s, _ in found[:MAX_CONDITIONS]]
