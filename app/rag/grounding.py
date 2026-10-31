@@ -267,7 +267,7 @@ def _lines(answer: str):
     """(prefijo de lista, oraciones) por renglón; None para renglones que no se
     revisan (vacíos o la cita de la fuente)."""
     for line in answer.splitlines():
-        if not line.strip() or _SOURCE_LINE.match(line) or re.fullmatch(r"\s*\(.*\)\s*\.?\s*", line):
+        if not line.strip() or _is_source(line):
             yield line, None
             continue
         m = _LIST_MARK.match(line)
@@ -291,8 +291,20 @@ def unsupported(answer: str, hits: Sequence[Hit], question: str) -> tuple[list[C
 
 
 def _is_source(sentence: str) -> bool:
+    """¿Es la cita de la fuente? Un paréntesis solo lo es si trae página, "Fuente" o
+    ".pdf", o si es corto y nombra un documento. El 30-oct pasó sin revisar
+    "(El resto del procedimiento no se menciona para este caso.)" porque todo
+    paréntesis contaba como fuente."""
     s = sentence.strip()
-    return bool(_SOURCE_LINE.match(s)) or bool(re.fullmatch(r"\(.*\)\s*\.?", s))
+    if _SOURCE_LINE.match(s):
+        return True
+    m = re.fullmatch(r"[*_]*\((.*)\)[*_]*\s*\.?[*_]*", s)
+    if not m:
+        return False
+    inner = guards.normalize(m.group(1))
+    return bool(re.search(r"p[aá]g\b|p[aá]g\.|fuente|\.pdf|\bcap[ií]tulo\b", inner)) or (
+        len(inner.split()) <= 12 and re.search(r"manual|reglamento|lineamiento|gu[ií]a", inner)
+        is not None)
 
 
 def remove(answer: str, claims: Sequence[Claim]) -> str:

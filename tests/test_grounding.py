@@ -455,3 +455,28 @@ def test_limite_que_el_documento_si_pone_no_es_negacion():
     sentence = ("Además, cada actividad complementaria autorizada no puede tener más de 2 "
                 "créditos.")
     assert grounding.unsupported(sentence, [hit], "¿Cuántos créditos necesito?")[0] == []
+
+
+# 30-oct, "¿Cómo solicito una baja temporal extemporánea?": el paréntesis no era la fuente
+EXTEMPORANEA = """Para una baja temporal que se solicite fuera del plazo de 20 días hábiles, el \
+estudiante debe:
+
+1. Manifestar por escrito su determinación de baja al **Comité Académico**.
+
+(El resto del procedimiento no se menciona para este caso.)  
+(Fuente: Manual_de_Lineamientos_TecNM, pág. 46)"""
+
+
+def test_parentesis_que_no_es_la_fuente_si_se_revisa():
+    [claim] = grounding.unsupported(EXTEMPORANEA, HITS, Q)[0]
+    assert "resto del procedimiento" in claim.text
+    fixed = grounding.remove(EXTEMPORANEA, [claim])
+    assert "resto" not in fixed and fixed.endswith("(Fuente: Manual_de_Lineamientos_TecNM, pág. 46)")
+
+
+@pytest.mark.parametrize("cita", [
+    "(Manual de Lineamientos TecNM, pág. 46)", "*(Fuente: Manual de Lineamientos del TecNM, pág. 46)*",
+    "(Manual de Lineamientos del TecNM)", "(Lineamiento-para-Acreditacion.pdf)",
+    "(Manual de Lineamientos Académico-Administrativos del TecNM, capítulo 14)"])
+def test_las_citas_de_fuente_no_se_revisan(cita):
+    assert grounding.unsupported(cita, HITS, Q) == ([], 0)
