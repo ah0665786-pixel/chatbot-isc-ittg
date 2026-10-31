@@ -369,7 +369,10 @@ def test_es_quien_con_accion_del_documento_pasa():
 
 def test_corrida_4_se_corrige_sin_la_decision_del_comite(kb, cfg):
     r = pipe(kb, cfg, ScriptedLLM(DRAFT_4, DRAFT_4)).answer(Q)
-    assert r.outcome is Outcome.ANSWERED and len(r.unsupported_claims) == 4  # 2 + 2
+    claims = [c for c in r.unsupported_claims if c["accion"] != "condicion_pedida"]
+    assert r.outcome is Outcome.ANSWERED and len(claims) == 4  # 2 + 2
+    # además se pidió "al menos un semestre" en la misma regeneración
+    assert [c["accion"] for c in r.unsupported_claims].count("condicion_pedida") == 1
     assert "decidirá" not in r.text and "No se menciona" not in r.text
     assert "1. **Manifestar por escrito su determinación** de baja al **Comité Académico**." in r.text
 
@@ -480,3 +483,113 @@ def test_parentesis_que_no_es_la_fuente_si_se_revisa():
     "(Manual de Lineamientos Académico-Administrativos del TecNM, capítulo 14)"])
 def test_las_citas_de_fuente_no_se_revisan(cita):
     assert grounding.unsupported(cita, HITS, Q) == ([], 0)
+
+
+# ---- condiciones y excepciones omitidas (regla 1d), 30-oct ----------------------
+from app.rag.pipeline import CONDITIONS_NOTE  # noqa: E402
+
+GUIA_3 = ("Generalidades. • La Residencia Profesional se cursa por una única ocasión. En el caso "
+          "de existir causas justificadas fuera del alcance del residente, es necesario proponer "
+          "una segunda asignación de proyecto. • El horario diario de actividades del residente "
+          "en el desarrollo de su proyecto lo establece la empresa, organismo o dependencia.")
+GUIA_CREDITOS = ("La Residencia Profesional tiene un valor de 10 créditos y debe acumular 500 "
+                 "horas en un periodo de cuatro a seis meses.")
+RES_HITS = [Hit(Chunk("guia-residencia", "Guia_Residencia_Profesional_2022.pdf", 3, GUIA_3,
+                      "pág. 4"), 0.944),
+            Hit(Chunk("guia-residencia", "Guia_Residencia_Profesional_2022.pdf", 4, GUIA_CREDITOS,
+                      "pág. 5"), 0.90)]
+RES_Q = "¿Puedo repetir la residencia si la repruebo?"
+# Lo que respondió el modelo 3 de 3 veces con 1e42e60
+RES_SIN = ("No, la Residencia Profesional solo se cursa una única ocasión; si se reprueba no "
+           "puede repetirse. (Guía Residencia Profesional 2022, pág. 4)")
+RES_CON = ("No, la Residencia Profesional se cursa por una única ocasión. Solo si existen causas "
+           "justificadas fuera de tu alcance se propone una segunda asignación de proyecto. "
+           "(Guía Residencia Profesional 2022, pág. 4)")
+BAJA_SIN = ("Si ya pasaron los 20 días hábiles, para la baja temporal debes manifestar por "
+            "escrito tu determinación al Comité Académico. (Manual de Lineamientos TecNM, pág. 46)")
+BAJA_CON = ("Si ya pasaron los 20 días hábiles, para la baja temporal debes manifestar por "
+            "escrito tu determinación al Comité Académico. Aplica si cursaste al menos un "
+            "semestre en el Instituto. (Manual de Lineamientos TecNM, pág. 46)")
+
+
+def test_residencia_omite_la_segunda_asignacion():
+    [cond] = grounding.omitted_conditions(RES_SIN, RES_HITS, RES_Q)
+    assert "segunda asignación de proyecto" in cond and "horario" not in cond
+    assert grounding.omitted_conditions(RES_CON, RES_HITS, RES_Q) == []
+
+
+def test_baja_omite_al_menos_un_semestre():
+    [cond] = grounding.omitted_conditions(BAJA_SIN, HITS, Q)
+    assert "al menos un semestre" in cond
+    assert grounding.omitted_conditions(BAJA_CON, HITS, Q) == []
+
+
+def test_condicion_de_otro_tramite_o_parrafo_no_se_pide():
+    # créditos de la residencia: la excepción de la segunda asignación está en otro párrafo
+    creditos = "La Residencia Profesional vale 10 créditos. (Guía Residencia Profesional 2022, pág. 5)"
+    assert grounding.omitted_conditions(creditos, RES_HITS,
+                                        "¿Cuántos créditos vale la residencia profesional?") == []
+    # baja parcial: "Todo estudiante que ... tiene derecho a solicitar baja parcial"
+    parcial = Hit(Chunk("manual", DOC, 82, "De la baja parcial: 5.4.6.1 Todo estudiante que haya "
+                        "cursado al menos un semestre en el Instituto, tiene derecho a solicitar "
+                        "baja parcial en algunas asignaturas.", "pág. 45"), 0.85)
+    assert grounding.omitted_conditions(BAJA_CON.replace(" Aplica si cursaste al menos un "
+                                                         "semestre en el Instituto.", ""),
+                                        [HITS[0], parcial], Q) == []
+
+
+def test_remision_a_otro_lineamiento_no_se_pide():
+    # "Lo anterior a excepción de lo que se indique en los lineamientos ... (ver CAPÍTULO 11)"
+    assert all("lo que se indique" not in c
+               for c in grounding.omitted_conditions(BAJA_CON, HITS, Q))
+
+
+def test_residencia_pide_la_excepcion_en_la_misma_regeneracion(kb, cfg):
+    llm = ScriptedLLM(RES_SIN, RES_CON)
+    r = pipe(kb, cfg, llm, hits=RES_HITS).answer(RES_Q)
+    assert r.outcome is Outcome.ANSWERED and r.text == RES_CON and len(llm.calls) == 2
+    note = llm.calls[1][-1]["content"]
+    assert note.startswith(CONDITIONS_NOTE.split("{items}")[0]) and "segunda asignación" in note
+    assert [c["accion"] for c in r.unsupported_claims] == ["condicion_pedida"]
+    assert r.removed_claims == 0 and "1 condiciones omitidas" in r.debug[0]
+
+
+def test_baja_pide_al_menos_un_semestre_en_la_misma_regeneracion(kb, cfg):
+    llm = ScriptedLLM(BAJA_SIN, BAJA_CON)
+    r = pipe(kb, cfg, llm).answer(Q)
+    assert r.text == BAJA_CON and len(llm.calls) == 2
+    assert "al menos un semestre" in llm.calls[1][-1]["content"]
+
+
+def test_si_la_regeneracion_tampoco_la_incluye_se_entrega_sin_otra_llamada(kb, cfg):
+    llm = ScriptedLLM(RES_SIN, RES_SIN)
+    r = pipe(kb, cfg, llm, hits=RES_HITS).answer(RES_Q)
+    assert r.outcome is Outcome.ANSWERED and r.text == RES_SIN and len(llm.calls) == 2
+
+
+def test_condicion_y_afirmacion_sin_respaldo_van_en_una_sola_nota(kb, cfg):
+    con_anadido = RES_SIN.replace(
+        " (Guía", " La División de Estudios Profesionales autorizará la segunda asignación de "
+                  "proyecto del residente. (Guía")
+    llm = ScriptedLLM(con_anadido, RES_CON)
+    r = pipe(kb, cfg, llm, hits=RES_HITS).answer(RES_Q)
+    assert r.text == RES_CON and len(llm.calls) == 2
+    note = llm.calls[1][-1]["content"]
+    assert "no están respaldadas" in note and "segunda asignación" in note
+    assert sorted(c["accion"] for c in r.unsupported_claims) == ["condicion_pedida", "regenerada"]
+
+
+def test_sin_tiempo_no_se_pide_la_condicion(kb, cfg):
+    p = pipe(kb, cfg, ScriptedLLM(RES_SIN, RES_CON), hits=RES_HITS)
+    ticks = iter([0.0, cfg.llm_total_budget - 2.0])  # fecha límite; luego quedan 2 s
+    p._clock = lambda: next(ticks)
+    r = p.answer(RES_Q)
+    assert r.text == RES_SIN and len(p.llm.calls) == 1
+
+
+def test_despues_de_un_reintento_por_validacion_no_se_pide_la_condicion(kb, cfg):
+    # el cupo de regeneración ya se usó: no hay una tercera llamada por la condición
+    invented = RES_SIN.replace("2022, pág. 4", "2022, pág. 4. Son 45 días")
+    llm = ScriptedLLM(invented, RES_SIN, RES_CON)
+    r = pipe(kb, cfg, llm, hits=RES_HITS).answer(RES_Q)
+    assert r.text == RES_SIN and len(llm.calls) == 2

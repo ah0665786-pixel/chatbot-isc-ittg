@@ -89,6 +89,21 @@ CLAIMS_RETRY_NOTE = ("Estas oraciones de tu respuesta no están respaldadas por 
                      "Conserva lo que sí dice el CONTEXTO, con sus condiciones y excepciones, y la "
                      "fuente.")
 CLAIMS_UNSUPPORTED = "afirmaciones sin respaldo"
+# Regla 1d: condición o excepción del fragmento que la respuesta omitió (ver
+# grounding.omitted_conditions). Va en la MISMA regeneración, no en una llamada más.
+CONDITIONS_OMITTED = "condiciones omitidas"
+CONDITIONS_NOTE = ("Incluye también, con tus palabras y en una oración, esta condición o "
+                   "excepción del CONTEXTO que tu respuesta omitió:\n{items}")
+
+
+def _claims_note(claims, omitted: list[str]) -> str:
+    parts = []
+    if claims:
+        parts.append(CLAIMS_RETRY_NOTE.format(
+            items="\n".join(f"- \"{c.text.strip()}\" ({c.reason})" for c in claims)))
+    if omitted:
+        parts.append(CONDITIONS_NOTE.format(items="\n".join(f"- \"{c}\"" for c in omitted)))
+    return "\n\n".join(parts)
 LIST_TRUNCATED = "resumió la lista con 'etc.' o 'entre otros'"
 # Marcas de lista recortada (regla 4). Solo cuentan si el CONTEXTO no las
 # trae: el Manual a veces dice "etc." y ahí copiarlo es correcto.
@@ -250,6 +265,8 @@ class RagPipeline:
             confiable en conjunto (el modelo entendió mal el trámite) y es más seguro
             derivar."""
             text, claims, total, draft_no = draft
+            if not claims:  # solo se había pedido una condición omitida: vale tal cual
+                return answered(text, calls)
             fixed = grounding.remove(text, claims)
             removed = sum(1 for c in claims if c.cut_at < 0)
             ok, _why = self.validate(fixed, hits, q)
@@ -336,21 +353,31 @@ class RagPipeline:
             ok, why = self.validate(text, hits, q)
             if ok:
                 claims, total = grounding.unsupported(text, hits, q)
-                if not claims:
+                can_retry = (validation_failures == 0
+                             and deadline - self._clock() >= NO_INFO_RETRY_MIN_S)
+                # Condiciones omitidas: solo se piden si cabe la regeneración que ya
+                # existe; sin ella la respuesta se entrega igual (le falta algo, pero lo
+                # que dice está respaldado).
+                omitted = grounding.omitted_conditions(text, hits, q) if can_retry else []
+                if not claims and not omitted:
                     return answered(text, attempt)
-                log.info("%d de %d afirmaciones sin respaldo (intento %d): %s", len(claims),
-                         total, attempt, "; ".join(c.reason for c in claims))
-                if (validation_failures == 0
-                        and deadline - self._clock() >= NO_INFO_RETRY_MIN_S):
+                if claims:
+                    log.info("%d de %d afirmaciones sin respaldo (intento %d): %s", len(claims),
+                             total, attempt, "; ".join(c.reason for c in claims))
+                if can_retry:
                     note_claims(claims, attempt, "regenerada")
-                    drafts.append(f"[intento {attempt}, rechazado: {len(claims)} "
-                                  f"{CLAIMS_UNSUPPORTED}]\n{text}")
+                    claim_log.extend({"oracion": c, "motivo": "omite una condición o excepción "
+                                      "del documento", "intento": attempt,
+                                      "accion": "condicion_pedida"} for c in omitted)
+                    why_retry = "; ".join(filter(None, [
+                        f"{len(claims)} {CLAIMS_UNSUPPORTED}" if claims else "",
+                        f"{len(omitted)} {CONDITIONS_OMITTED}" if omitted else ""]))
+                    drafts.append(f"[intento {attempt}, rechazado: {why_retry}]\n{text}")
                     validation_failures += 1
                     pending = (text, claims, total, attempt)
-                    items = "\n".join(f"- \"{c.text.strip()}\" ({c.reason})" for c in claims)
                     messages = messages + [
                         {"role": "assistant", "content": text},
-                        {"role": "user", "content": CLAIMS_RETRY_NOTE.format(items=items)}]
+                        {"role": "user", "content": _claims_note(claims, omitted)}]
                     continue
                 return without_claims((text, claims, total, attempt), attempt)
             drafts.append(f"[intento {attempt}, rechazado: {why}]\n{text}")

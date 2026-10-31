@@ -334,3 +334,93 @@ def remove(answer: str, claims: Sequence[Claim]) -> str:
             prefix = re.sub(r"\d+", str(step), prefix, count=1)
         out.append(prefix + " ".join(kept))
     return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+# ---- condiciones y excepciones omitidas (regla 1d) -------------------------------
+# Medido con el modelo real: "¿Puedo repetir la residencia si la repruebo?" respondió
+# "se cursa por una única ocasión" 3 de 3 veces sin la excepción que sigue en la Guía
+# ("En el caso de existir causas justificadas ... segunda asignación de proyecto"), y
+# la baja fuera de plazo omitió "todo estudiante que haya cursado al menos un
+# semestre" en 6 de 6. Si la respuesta omite una condición así, se pide incluirla en
+# la MISMA regeneración que ya existe (no hay una llamada más).
+# Dos tipos, con reglas distintas para no pedirlas donde no importan:
+#  - quién puede hacer el trámite ("Todo estudiante que haya cursado al menos un
+#    semestre ... tiene derecho a solicitar baja temporal"): cuenta si ese trámite
+#    está en la pregunta y en la respuesta (así no se pide la de la baja parcial);
+#  - excepciones ("En el caso de existir causas justificadas ..."): cuentan si están
+#    junto a una oración que la respuesta usó (así "¿Cuántos créditos vale la
+#    residencia?" no pide la de la segunda asignación, que está en otro párrafo).
+_EXCEPTION = re.compile(r"\ben (el|los) casos? de\b|\ba excepcion de\b|\bsalvo\b|\bexcepto\b")
+_ELIGIBILITY = re.compile(r"\btodos? (los )?estudiantes? que\b")
+_PROCEDURE = re.compile(r"\b(?:solicitar|realizar|cursar|tramitar|presentar)\s+(?:la |el |su )?"
+                        r"(\w+\s+\w+)")
+# Solo remite a otro reglamento ("Lo anterior a excepción de lo que se indique en los
+# lineamientos ... (ver CAPÍTULO 11)"): no dice nada que el estudiante pueda usar aquí
+# y pedirlo costaba regeneraciones en casi todas las respuestas de bajas.
+_CROSS_REF = re.compile(r"lo que se indique|lo previsto en|lo establecido en|\bver cap")
+# La respuesta incluye la condición si tiene al menos esta fracción de sus términos
+# propios (los que no vienen de la pregunta).
+CONDITION_MIN_COVER = 0.34
+# Una oración del documento "se usó" si la respuesta tiene esta fracción de sus términos.
+USED_SENTENCE_COVER = 0.6
+MAX_CONDITIONS = 2
+
+
+def _stems(text: str) -> set[str]:
+    return {w[:6] for w in _terms(text)}
+
+
+def _doc_sentences(text: str) -> list[str]:
+    flat = " ".join(text.split())
+    return [s for s in re.split(r"(?<=\.)\s+(?=[A-ZÁÉÍÓÚÑ0-9])", flat) if s.strip()]
+
+
+def _clean_condition(sentence: str) -> str:
+    s = re.sub(r"^.*?(\d+(\.\d+){2,}\s+)", "", sentence)  # quita "5.4.6.4 " y lo anterior
+    s = s.split("•")[0]  # la Guía sigue con otra viñeta en la misma "oración"
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _relevant_condition(norm: str, i: int, used: list[int], answer: str, question: str) -> bool:
+    if _ELIGIBILITY.search(norm):
+        m = _PROCEDURE.search(norm)
+        if m:  # el trámite al que da derecho, contra pregunta y respuesta (sin espacios:
+            key = _nospace(m.group(1))  # el PDF parte palabras, "baj a")
+            return key in _nospace(question) and key in _nospace(answer)
+    elif not _EXCEPTION.search(norm):
+        return False
+    return any(abs(i - j) <= 1 for j in used)
+
+
+def omitted_conditions(answer: str, hits: Sequence[Hit], question: str) -> list[str]:
+    """Condiciones o excepciones de los fragmentos que la respuesta omite y que
+    importan para la pregunta (ver _EXCEPTION y _ELIGIBILITY)."""
+    a_stems, q_stems = _stems(answer), _stems(question)
+    found: list[tuple[str, set[str]]] = []
+    for h in hits:
+        sentences = _doc_sentences(h.chunk.text)
+        used = []
+        for i, s in enumerate(sentences):
+            st = _stems(s)
+            if len(st) >= 3 and len(st & a_stems) / len(st) >= USED_SENTENCE_COVER:
+                used.append(i)
+        for i, s in enumerate(sentences):
+            norm = " ".join(guards.normalize(s).split())
+            if _CROSS_REF.search(norm) or not _relevant_condition(norm, i, used, answer,
+                                                                  question):
+                continue
+            # Qué debe aparecer en la respuesta: en "Todo estudiante que haya cursado al
+            # menos un semestre en el Instituto, tiene derecho a ..." basta la condición
+            # (hasta la coma); en una excepción, la oración completa.
+            core = s
+            if _ELIGIBILITY.search(norm):
+                m = re.search(r"\bque\b(.*?),", s, re.IGNORECASE)
+                core = m.group(1) if m else s
+            own = _stems(core) - q_stems - {"haya", "hayan"}
+            if not own or len(own & a_stems) / len(own) >= CONDITION_MIN_COVER:
+                continue  # sin términos propios, o la respuesta ya la incluye
+            # el mismo lineamiento suele venir en dos documentos (Manual y Lineamiento)
+            if any(len(own & k) / len(own | k) >= 0.5 for _, k in found):
+                continue
+            found.append((_clean_condition(s), own))
+    return [s for s, _ in found[:MAX_CONDITIONS]]
