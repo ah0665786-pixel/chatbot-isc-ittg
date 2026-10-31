@@ -61,7 +61,8 @@ def load_cases(path: Path = CASES) -> list[dict]:
     return [json.loads(l) for l in path.read_text("utf-8").splitlines() if l.strip()]
 
 
-def _plan(cases: list[dict], bajas: int, respondibles: bool, only: str | None) -> list[tuple[str, int, dict]]:
+def _plan(cases: list[dict], bajas: int, respondibles: bool, only: str | None,
+          runs: int = 1, unanswerable: bool = False) -> list[tuple[str, int, dict]]:
     """Lista de (grupo, corrida, caso), por prioridad: todas las corridas de la
     consulta del caso real, 3 de cada una de las demás de bajas, las preguntas
     con respuesta y al final el resto de corridas de bajas. Si el tope diario
@@ -75,7 +76,11 @@ def _plan(cases: list[dict], bajas: int, respondibles: bool, only: str | None) -
         plan += [("bajas", run, c) for run in range(1, min(bajas, FIRST_RUNS) + 1) for c in others]
         rest = [("bajas", run, c) for run in range(FIRST_RUNS + 1, bajas + 1) for c in others]
     if respondibles:
-        plan += [("respondibles", 1, c) for c in cases if c.get("answerable", True)]
+        plan += [("respondibles", run, c) for run in range(1, runs + 1) for c in cases
+                 if c.get("answerable", True)]
+    if unanswerable:  # control: deben derivar
+        plan += [("sin_respuesta", run, c) for run in range(1, runs + 1) for c in cases
+                 if not c.get("answerable", True)]
     plan += rest
     if only:
         plan = [p for p in plan if only in p[2]["q"]]
@@ -138,7 +143,8 @@ def _record(group: str, run: int, case: dict, r, calls: int, tokens: int, retrie
 
 def run(args) -> int:
     cases = load_cases(Path(args.cases))
-    plan = _plan(cases, args.bajas, args.respondibles, args.solo)
+    plan = _plan(cases, args.bajas, args.respondibles, args.solo, args.corridas,
+                 args.con_sin_respuesta)
     out = Path(args.out)
     done = set()
     if out.exists():
@@ -195,7 +201,7 @@ def summarize(paths: list[str], cases_path: Path = CASES) -> str:
             if r["resultado"] == "answered":
                 r["faltan"], r["anadidos"] = check_facts(r["texto"], facts.get(r["q"]))
         lines.append(f"== {p}")
-        for group in ("bajas", "respondibles"):
+        for group in ("bajas", "respondibles", "sin_respuesta"):
             g = [r for r in rows if r["grupo"] == group]
             if not g:
                 continue
@@ -233,6 +239,10 @@ def main(argv=None) -> int:
     ap.add_argument("--bajas", type=int, default=0, help="corridas por cada consulta de bajas")
     ap.add_argument("--respondibles", action="store_true",
                     help="una corrida por cada pregunta con respuesta")
+    ap.add_argument("--corridas", type=int, default=1,
+                    help="corridas por cada pregunta con respuesta (y sin respuesta)")
+    ap.add_argument("--con-sin-respuesta", action="store_true",
+                    help="incluir las preguntas sin respuesta en los documentos (deben derivar)")
     ap.add_argument("--solo", help="solo las consultas que contengan este texto")
     ap.add_argument("--max-tokens", type=int, default=0,
                     help="detenerse al gastar estos tokens (0 = sin tope)")
