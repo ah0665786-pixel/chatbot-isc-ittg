@@ -352,6 +352,15 @@ class RagPipeline:
                               provider=provider, model=model, attempts=attempt)
             ok, why = self.validate(text, hits, q)
             if ok:
+                # Fugas internas ("Según el CONTEXTO,", un "(NO_INFO: ...)" dentro de la
+                # respuesta): se limpian esas palabras y la oración sigue a la revisión.
+                cleaned, leaks = grounding.scrub_internal(text, hits)
+                if leaks:
+                    drafts.append(f"[intento {attempt}, se limpiaron {len(leaks)} fugas "
+                                  f"internas]\n{text}")
+                    claim_log.extend({"oracion": leak, "motivo": "fuga interna",
+                                      "intento": attempt, "accion": "limpiada"} for leak in leaks)
+                    text = cleaned
                 claims, total = grounding.unsupported(text, hits, q)
                 can_retry = (validation_failures == 0
                              and deadline - self._clock() >= NO_INFO_RETRY_MIN_S)

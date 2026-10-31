@@ -616,3 +616,69 @@ def test_deduccion_despues_de_una_coma_se_recorta_sin_perder_la_condicion():
     assert ("*Condición:* Sólo los estudiantes que hayan cursado al menos un semestre en el "
             "Instituto pueden solicitar la baja temporal.") in fixed
     assert "normalmente" not in fixed
+
+
+# ---- fila 41 de la revisión del 29-oct: fuga interna sin borrar la oración --------
+MANUAL_97 = ("La convalidación está caracterizada por los siguientes aspectos:  Permite al "
+             "estudiante cambiar de un plan de estudio a otro dentro de las Instituciones "
+             "adscritas al TecNM.  Permite cursar una segunda carrera a nivel licenciatura, una "
+             "vez que el egresado se ha titulado o ha aprobado su acto profesional de la primera "
+             "carrera cursada.  Permite al estudiante, que causó baja definitiva habiendo acr "
+             "editado el 50% de créditos o más, reinscribirse en un plan de estudios diferente "
+             "que le ofrezca el Instituto, con el propósito de que concluya una carrera "
+             "profesional.")
+FILA41_HITS = [Hit(Chunk("manual-de-lineamientos-tecnm", DOC, 97, MANUAL_97, "pág. 53"), 0.87)]
+FILA41_Q = ("Me dieron de baja definitiva, ¿puedo entrar a otra carrera y que me cuenten lo que "
+            "llevaba?")
+# Segundo intento real del modelo (con sus espacios finos \u202f)
+FILA41 = ("Sí, puedes reinscribirte en un plan de estudios diferente.\u202fSegún el CONTEXTO, la "
+          "convalidación permite al estudiante que causó baja definitiva **habiendo acreditado el "
+          "50\u202f% de créditos o más** reinscribirse en un plan de estudios distinto que le "
+          "ofrezca el Instituto, con el propósito de que concluya una carrera profesional. \n\n"
+          "(NO_INFO: el CONTEXTO no especifica si se reconocen exactamente las asignaturas o cómo "
+          "se contabilizan los créditos).\n\n(Fuente: Manual de Lineamientos TecNM, pág. 53)")
+
+
+def test_fuga_interna_se_limpia_sin_borrar_la_condicion_del_50():
+    text, leaks = grounding.scrub_internal(FILA41, FILA41_HITS)
+    assert "Según el CONTEXTO" in leaks and any("NO_INFO" in x for x in leaks)
+    assert "CONTEXTO" not in text and "NO_INFO" not in text
+    assert ("La convalidación permite al estudiante que causó baja definitiva **habiendo "
+            "acreditado el 50\u202f% de créditos o más**") in text
+    assert grounding.unsupported(text, FILA41_HITS, FILA41_Q)[0] == []  # lo demás tiene respaldo
+
+
+def test_fila_41_se_entrega_con_el_50_por_ciento(kb, cfg):
+    llm = ScriptedLLM(FILA41)
+    r = pipe(kb, cfg, llm, hits=FILA41_HITS).answer(FILA41_Q)
+    assert r.outcome is Outcome.ANSWERED and len(llm.calls) == 1
+    assert "50\u202f% de créditos" in r.text and "CONTEXTO" not in r.text
+    assert r.text.endswith("(Fuente: Manual de Lineamientos TecNM, pág. 53)")
+    assert {c["accion"] for c in r.unsupported_claims} == {"limpiada"}
+    assert r.removed_claims == 0 and "fugas internas" in r.debug[0]
+
+
+@pytest.mark.parametrize("answer,expected", [
+    ("Requisitos para la Residencia Profesional según el contexto:\n- Servicio social liberado.",
+     "Requisitos para la Residencia Profesional:\n- Servicio social liberado."),
+    ("De acuerdo con los fragmentos, la baja se manifiesta por escrito.",
+     "La baja se manifiesta por escrito."),
+    ("1. Según el CONTEXTO, debes manifestarlo por escrito【1†L1-L4】.",
+     "1. Debes manifestarlo por escrito."),
+])
+def test_limpieza_de_frases_internas(answer, expected):
+    assert grounding.scrub_internal(answer, HITS)[0] == expected
+
+
+def test_si_lo_que_queda_no_tiene_respaldo_se_borra_la_oracion():
+    # tras limpiar "el CONTEXTO" queda "el documento no especifica...", que no se entrega
+    text, _ = grounding.scrub_internal("El CONTEXTO no especifica el formato del escrito.", HITS)
+    [claim] = grounding.unsupported(text, HITS, Q)[0]
+    assert "no dice" in claim.reason
+
+
+def test_contexto_que_usa_el_documento_no_se_limpia():
+    hit = Hit(Chunk("x", "Lineamiento.pdf", 1, "El tutor analiza el contexto social del estudiante.",
+                    "pág. 2"), 0.85)
+    answer = "El tutor analiza el contexto social del estudiante."
+    assert grounding.scrub_internal(answer, [hit]) == (answer, [])

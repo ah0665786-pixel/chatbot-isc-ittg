@@ -442,3 +442,55 @@ def omitted_conditions(answer: str, hits: Sequence[Hit], question: str) -> list[
                 continue
             found.append((_condition_text(s, norm), own))
     return [s for s, _ in found[:MAX_CONDITIONS]]
+
+
+# ---- fugas internas: se limpian las palabras, no la oración ----------------------
+# Fila 41 de la revisión del 29-oct ("Me dieron de baja definitiva, ¿puedo entrar a
+# otra carrera...?"): por "Según el CONTEXTO," se quitó la oración completa con la
+# condición del 50 % de créditos y la respuesta quedó en un "Sí" sin condición. Ahora
+# se limpian solo esas palabras; la oración sigue a la revisión normal y se quita
+# completa solo si lo que queda no tiene respaldo.
+_LEAK_LEAD_IN = re.compile(r"\b(?:seg[uú]n|de acuerdo con|conforme a|como (?:indica|se[ñn]ala|"
+                           r"dice|menciona))\s+(?:el|los|la|las)\s+(?:contexto|fragmentos?)\b"
+                           r"\s*,?\s*", re.IGNORECASE)
+_LEAK_IN_CTX = re.compile(r"[ \t]*\b(?:en|del|dentro del)\s+(?:el\s+)?contexto\b", re.IGNORECASE)
+_LEAK_NO_INFO = re.compile(r"[ \t]*\(\s*NO_INFO\b[^)]*\)[ \t]*\.?|^[ \t]*NO_INFO\b.*$",
+                           re.IGNORECASE | re.MULTILINE)
+_LEAK_CITE = re.compile(r"[ \t]*【[^】]*】|[ \t]*\[\d+\]")
+_LEAK_WORD = re.compile(r"\bcontexto\b", re.IGNORECASE)
+
+
+def _capitalize_after_cut(text: str, start: int) -> str:
+    """Si lo quitado iniciaba la oración ("Según el CONTEXTO, la convalidación..."),
+    la que sigue empieza con mayúscula."""
+    before = text[:start]
+    if (not before.strip() or re.search(r"([.!?:]|^[ \t]*(\d+[.)]|[-*•])?)[ \t *_]*$",
+                                         before, re.MULTILINE)) and text[start:start + 1].islower():
+        return text[:start] + text[start].upper() + text[start + 1:]
+    return text
+
+
+def scrub_internal(answer: str, hits: Sequence[Hit]) -> tuple[str, list[str]]:
+    """(respuesta sin fugas internas, fugas encontradas). "CONTEXTO" solo cuenta
+    como fuga si los documentos no usan esa palabra."""
+    leaks: list[str] = []
+    text = answer
+    for rx in (_LEAK_NO_INFO, _LEAK_CITE):
+        leaks += [m.group(0).strip() for m in rx.finditer(text)]
+        text = rx.sub("", text)
+    if not any(_LEAK_WORD.search(guards.normalize(h.chunk.text)) for h in hits):
+        while (m := _LEAK_LEAD_IN.search(text)):
+            leaks.append(m.group(0).strip(" ,"))
+            text = _capitalize_after_cut(text[:m.start()] + text[m.end():], m.start())
+        leaks += [m.group(0).strip() for m in _LEAK_IN_CTX.finditer(text)]
+        text = _LEAK_IN_CTX.sub("", text)
+        # lo que quede ("el CONTEXTO no especifica ...") lo revisa _NOT_STATED como
+        # "el documento no especifica ..."
+        leaks += [m.group(0) for m in _LEAK_WORD.finditer(text)]
+        text = _LEAK_WORD.sub("documento", text)
+    if not leaks:
+        return answer, []
+    text = re.sub(r"[ \t]+([:.,;])", r"\1", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", text).strip()
+    return text, leaks

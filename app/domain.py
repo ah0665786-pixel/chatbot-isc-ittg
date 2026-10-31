@@ -65,7 +65,8 @@ class RagResult:
     no_info_retries: int = 0        # reintentos porque el modelo dijo NO_INFO (0 o 1)
     # Oraciones sin respaldo en los fragmentos (RF-RN-02): {oracion, motivo, intento,
     # accion}; accion = regenerada | quitada | recortada (solo una cláusula) | derivada |
-    # condicion_pedida (condición o excepción omitida que se pidió incluir al regenerar)
+    # condicion_pedida (condición o excepción omitida que se pidió incluir al regenerar) |
+    # limpiada (fuga interna como "Según el CONTEXTO," que se quitó sin borrar la oración)
     unsupported_claims: list[dict] = field(default_factory=list)
 
     @property
