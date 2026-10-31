@@ -37,6 +37,12 @@ _REPROBAR = r"(reprob|reprueb|repet|repit)\w*"
 _REPETICION = re.compile(rf"\b(materia|asignatura)s?\b.*\b{_REPROBAR}"
                          rf"|\b{_REPROBAR}\b.*\b(materia|asignatura)s?\b"
                          r"|\bcurso (especial|de repeticion)\b|\ben repeticion\b")
+# "¿Puedo repetir la residencia si la repruebo?": la Guía responde con "se cursa
+# por una única ocasión" (sin "repetir" ni "reprobar") y el modelo dijo NO_INFO
+# con ese fragmento 4.º, tanto con main como con la rama (30-oct).
+_RESIDENCIA = re.compile(r"\bresidencia")
+_REPETIR_RESIDENCIA = re.compile(rf"\b{_REPROBAR}|\b(otra vez|de nuevo|segunda vez|volver a"
+                                 r"|no acredit\w*|segunda oportunidad)\b")
 _ACTIVIDADES = re.compile(r"\bactividad(es)? complementaria")
 # Solo preguntas de créditos/horas/plazos: con "¿Qué son?", "¿cómo se acredita?"
 # o la del inglés, la expansión las empeoraba (de 2.º a 8.º); sin ella ya salen bien.
@@ -65,6 +71,9 @@ EXPANSIONS: list[tuple[re.Pattern[str], re.Pattern[str] | None, str]] = [
      "en el curso ordinario y la cursa por segunda vez o por tercera vez."),
     # Créditos, horas y plazos quedaban 4.º-8.º (el capítulo tiene muchos
     # fragmentos parecidos: tareas del profesor, evaluación...). Con esto, 1.º-2.º.
+    (_RESIDENCIA, _REPETIR_RESIDENCIA,
+     "Generalidades de la Residencia Profesional: se cursa por una única ocasión; por "
+     "causas justificadas fuera del alcance del residente, segunda asignación de proyecto."),
     (_ACTIVIDADES, _CREDITOS_PLAZO,
      "Políticas de operación de las actividades complementarias: valor curricular, "
      "créditos, horas efectivas y semestres."),

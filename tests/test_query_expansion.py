@@ -84,3 +84,21 @@ def test_definicion_de_convalidacion():
 ])
 def test_actividades_complementarias_solo_creditos_horas_y_plazos(q, expande):
     assert ("Políticas de operación de las actividades complementarias" in expand_query(q)) is expande
+
+
+@pytest.mark.parametrize("q", [
+    "¿Puedo repetir la residencia si la repruebo?",
+    "Si no acredito la residencia profesional, ¿la vuelvo a cursar?",
+    "¿Puedo hacer la residencia otra vez?",
+])
+def test_repetir_la_residencia_usa_el_vocabulario_de_unica_ocasion(q):
+    # La Guía responde con "se cursa por una única ocasión", sin "repetir" ni "reprobar"
+    expanded = expand_query(q)
+    assert "única ocasión" in expanded and "segunda asignación" in expanded
+    assert "Curso de repetición" not in expanded
+
+
+@pytest.mark.parametrize("q", ["¿Qué requisitos necesito para la residencia profesional?",
+                               "¿Cuántas horas dura la residencia?"])
+def test_otras_preguntas_de_residencia_no_usan_la_de_unica_ocasion(q):
+    assert "única ocasión" not in expand_query(q)

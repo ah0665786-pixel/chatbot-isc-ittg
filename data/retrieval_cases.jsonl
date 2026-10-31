@@ -32,7 +32,7 @@
 {"q": "¿Qué requisitos piden para entrar a residencia profesional?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["tener aprobado al menos el 80%"]}
 {"q": "¿Puedo hacer residencias si no he liberado el servicio social?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["tener aprobado al menos el 80%"]}
 {"q": "¿Cuántos créditos vale la residencia profesional?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["valor curricular para la residencia"]}
-{"q": "¿Puedo repetir la residencia si la repruebo?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["se cursa por una unica ocasion"]}
+{"q": "¿Puedo repetir la residencia si la repruebo?", "answerable": true, "tema": "residencia profesional", "expected_terms": ["se cursa por una unica ocasion"], "expected_doc": "guia_residencia", "hechos": {"incluye": ["unica ocasion", "segunda asignacion|causas justificadas"], "no_incluye": ["\\bcontexto\\b", "\\bno se (menciona|especifica|indica)\\b", "\\bsi,? (puedes|se puede) repetir"]}}
 {"q": "¿Qué es la convalidación de estudios?", "answerable": true, "tema": "convalidación de estudios", "expected_terms": ["equiparacion y validacion de asignaturas", "correspondencia relativa o total"]}
 {"q": "Si me cambio de carrera, ¿me reconocen las materias que ya pasé?", "answerable": true, "tema": "convalidación de estudios", "expected_terms": ["cambiar de un plan de estudio a otro", "en caso de cambio de carrera"]}
 {"q": "¿Cómo hago para que me revaliden materias al cambiarme de plan de estudios?", "answerable": true, "tema": "convalidación de estudios", "expected_terms": ["cambiar de un plan de estudio a otro", "en caso de cambio de carrera"]}

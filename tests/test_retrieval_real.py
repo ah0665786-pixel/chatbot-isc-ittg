@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from app.calibrate import _relevant
+from app.rag import guards
 from app.config import Settings
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -59,3 +60,12 @@ def test_el_fragmento_correcto_llega_al_llm(pipeline, case):
                         for i, h in enumerate(hits, 1))
     assert found, (f"el fragmento esperado no está en los top {pipeline.cfg.top_k}:\n{listado}")
     assert hits[found[0] - 1].score >= pipeline.cfg.sim_threshold, "quedó bajo el umbral"
+
+
+def test_unica_ocasion_de_la_residencia_queda_primero(pipeline):
+    # 30-oct: con el fragmento 4.º el modelo dijo NO_INFO (main y rama). Con la
+    # expansión debe quedar en el primer o segundo lugar.
+    hits = pipeline.retrieve("¿Puedo repetir la residencia si la repruebo?")
+    found = [i for i, h in enumerate(hits, 1)
+             if "unica ocasion" in " ".join(guards.normalize(h.chunk.text).split())]
+    assert found and found[0] <= 2, [f"{h.score:.3f} {h.chunk.doc_name} {h.chunk.section}" for h in hits]

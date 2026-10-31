@@ -40,7 +40,8 @@ sola línea, qué le falta al CONTEXTO (por ejemplo "NO_INFO: el CONTEXTO no men
 Si la pregunta usa otra unidad o calificativo de plazo que el CONTEXTO (por ejemplo "días \
 naturales" cuando el documento dice "días hábiles"), eso NO es falta de información: responde \
 con lo que dice el CONTEXTO y aclara la diferencia (por ejemplo "el plazo es de 20 días \
-hábiles, no naturales").
+hábiles, no naturales"). Tampoco es falta de información que el fragmento lo diga con otras \
+palabras: por ejemplo, "se cursa por una única ocasión" responde si algo se puede repetir.
 3. Redacta en español formal, claro y breve (máximo 150 palabras), apto para leer en el celular. \
 Usa pasos numerados cuando expliques un procedimiento.
 4. Si la pregunta pide opciones, tipos, modalidades, requisitos o documentos (p. ej. "¿cuáles son \
@@ -70,9 +71,10 @@ CONTEXT_DUMP = "reproduce el formato interno del CONTEXTO ([n] (documento) ...)"
 # fuera de plazo, Manual pág. 46) y al repetir la misma consulta respondió bien.
 NO_INFO_RETRY_NOTE = ("Revisa de nuevo cada fragmento del CONTEXTO. Si alguno responde la "
                       "pregunta, aunque sea en parte o con otra unidad o calificativo (por ejemplo "
-                      "días hábiles en vez de naturales), responde con lo que dice y aclara la "
-                      "diferencia. Solo si de verdad ningún fragmento la responde, contesta "
-                      "NO_INFO: y el motivo.")
+                      "días hábiles en vez de naturales) o con otras palabras (por ejemplo, "
+                      "\"se cursa por una única ocasión\" responde si algo se puede repetir), "
+                      "responde con lo que dice y aclara la diferencia. Solo si de verdad ningún "
+                      "fragmento la responde, contesta NO_INFO: y el motivo.")
 # Tiempo mínimo que debe quedar del presupuesto (RNF-FI-02) para intentar el
 # reintento por NO_INFO; si no alcanza, se deriva con la primera respuesta.
 NO_INFO_RETRY_MIN_S = 5.0
