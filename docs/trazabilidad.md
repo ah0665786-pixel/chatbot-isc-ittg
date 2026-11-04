@@ -291,6 +291,7 @@ arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 | `data/redteam_2026-10-22_2328.json` | Corrida previa (19/20, falla B8) |
 | `data/loadtest_2026-10-22_2332.json` | RNF-EF-01/02: 20 usuarios, base completa, p95 1.78 s, 0 errores (LLM simulado) |
 | `data/retrieval_cases.jsonl` + `tests/test_retrieval_real.py` | RF-I-03: 54/54 preguntas con el fragmento correcto en el top 5; con `tests/test_topics.py`, 62/62 temas bien clasificados (N11) |
+| `data/eval_exactitud.jsonl` + `app/eval_exactitud.py` + `docs/eval_exactitud.md` | RF-RN-02/RF-RN-03 y HU-07, en preparación (2026-11-03). 48 preguntas de estudiantes (40 a responder, 8 a derivar), con cita, documento y página del PDF verificadas contra los PDF. Todas **pendientes de validación por la coordinadora** (`docs/eval_exactitud_revision.docx`). No se ha corrido: costaría unos 127,000 tokens de Groq |
 | `docs/capacidad-y-costos.md` | RNF-EF-02 con LLM real y límites del plan gratuito de Groq |
 | Tabla `metricas` (base real) | RNF-EF-01: 17 consultas, prom. 0.99 s, p95 2.00 s (calculado por el panel, 2026-10-26) |
 | Suite de pruebas | 415 aprobadas, 15 omitidas sin PostgreSQL (`test_repository_postgres.py` 15/15 en Docker con PostgreSQL) |
