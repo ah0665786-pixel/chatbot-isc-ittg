@@ -90,7 +90,12 @@ TIPOS = {t.clave: t for t in (
 
 # Motivo de derivación -> tipo de aviso. INJECTION es un intento de ataque (no
 # una consulta real que necesite su atención) y TOO_LONG es un error del
-# propio mensaje del estudiante: ninguno de los dos se escala.
+# propio mensaje del estudiante: ninguno de los dos se escala. HIGH_DEMAND
+# (todos los proveedores en su límite de uso) tampoco: es saturación pasajera
+# que se resuelve sola, el estudiante ya sabe que debe reintentar y la
+# coordinación no tiene nada que hacer; queda en metricas y en el panel con su
+# propio motivo. La falla técnica real (LLM_UNAVAILABLE) sí se avisa, con el
+# límite de AVISOS_FALLA_INTERVALO_MIN.
 _REASON_TIPO = {
     Reason.OUT_OF_SCOPE.value: "datos_personales",
     Reason.LOW_SIMILARITY.value: "sin_informacion",

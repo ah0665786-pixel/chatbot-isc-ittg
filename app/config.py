@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+# Proveedores en la cadena de respaldo (LLM_1_* ... LLM_5_*); los que no tengan
+# BASE_URL y MODEL se ignoran.
+MAX_LLM_ENDPOINTS = 5
+
+
 @dataclass(frozen=True)
 class LLMEndpoint:
     name: str
@@ -23,6 +28,14 @@ class Settings:
     llm_timeout: float = 25.0
     llm_max_retries: int = 3
     llm_total_budget: float = 80.0  # RNF-FI-02: tope de espera total (<= 90 s)
+    # Fila cuando el proveedor devuelve límite de uso (HTTP 429). La espera en la
+    # fila cuenta dentro de llm_total_budget. 0 consultas = sin fila.
+    llm_queue_max: int = 5
+    llm_queue_max_wait: float = 60.0
+    llm_queue_reserve: float = 15.0  # tope que debe quedar para generar tras esperar
+    # Mensajes de Telegram que se atienden a la vez (python-telegram-bot, por
+    # defecto, atiende uno por uno)
+    bot_concurrency: int = 20
 
     embed_model: str = "intfloat/multilingual-e5-small"
     embed_query_prefix: str = "query: "
@@ -97,7 +110,7 @@ class Settings:
         import json
 
         endpoints = []
-        for i in (1, 2, 3):
+        for i in range(1, MAX_LLM_ENDPOINTS + 1):
             base = os.getenv(f"LLM_{i}_BASE_URL", "").strip()
             model = os.getenv(f"LLM_{i}_MODEL", "").strip()
             if base and model:
@@ -128,6 +141,10 @@ class Settings:
             llm_timeout=f("LLM_TIMEOUT", 25),
             llm_max_retries=i_("LLM_MAX_RETRIES", 3),
             llm_total_budget=f("LLM_TOTAL_BUDGET", 80),
+            llm_queue_max=max(i_("LLM_COLA_MAX", 5), 0),
+            llm_queue_max_wait=max(f("LLM_COLA_ESPERA_MAX_SEG", 60), 0.0),
+            llm_queue_reserve=max(f("LLM_COLA_RESERVA_SEG", 15), 0.0),
+            bot_concurrency=max(i_("BOT_CONCURRENCIA", 20), 1),
             embed_model=os.getenv("EMBED_MODEL", cls.embed_model),
             embed_query_prefix=os.getenv("EMBED_QUERY_PREFIX", cls.embed_query_prefix),
             embed_doc_prefix=os.getenv("EMBED_DOC_PREFIX", cls.embed_doc_prefix),

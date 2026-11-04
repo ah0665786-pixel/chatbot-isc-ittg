@@ -89,6 +89,25 @@ técnica (…), contando esta"). El estado sale de la base (hora del último avi
 `avisos` y conteo de `metricas` con motivo `llm_unavailable`), así que se respeta aunque el bot se
 reinicie; un envío fallido no cuenta como aviso. Pruebas con reloj simulado en `test_notify.py`.
 
+**Fila por límite de uso y alta demanda** (2026-11-03, RNF-FI-02, RNF-EF-02).
+
+- **Fila.** Un `429` del proveedor ya no deriva la consulta. Se respeta `retry-after` o
+  `x-ratelimit-reset-*`, se pasa al siguiente proveedor y, si todos están en su límite, la
+  consulta espera en una fila FIFO que deja pasar una a la vez (`LLM_COLA_MAX`,
+  `LLM_COLA_ESPERA_MAX_SEG`, `LLM_COLA_RESERVA_SEG`).
+- **Tope.** La espera cuenta dentro de `LLM_TOTAL_BUDGET`.
+- **Avisos al estudiante.** Recibe "tu consulta está en fila" al entrar. Si la fila está
+  llena o la espera vence, recibe "alta demanda, intenta en unos minutos": motivo nuevo
+  `high_demand`, sin derivarlo a la coordinación y sin aviso a la coordinadora. Las fallas
+  técnicas siguen siendo `llm_unavailable`, con su aviso limitado.
+- **Concurrencia del bot.** Atiende hasta `BOT_CONCURRENCIA` mensajes a la vez; antes,
+  python-telegram-bot los atendía de uno en uno.
+- **Respaldo y panel.** Respaldo gratuito recomendado: Cloudflare Workers AI con el mismo
+  `gpt-oss-120b`. La cadena acepta `LLM_1` a `LLM_5`. El panel muestra los motivos con su
+  nombre en palabras.
+- **Documentación y pruebas.** Detalle y fuentes en `docs/capacidad-y-costos.md`. Pruebas:
+  `test_llm_queue.py` y `test_telegram_bot.py`.
+
 **Mensajes de orientación por instancia** (2026-10-26, RF-C-04, HU-08): datos personales y
 documentos oficiales remiten a "Servicios Escolares (Control Escolar) del ITTG" sin correo ni el
 horario de la coordinación; las dudas sin respuesta en los documentos y la falla técnica remiten a

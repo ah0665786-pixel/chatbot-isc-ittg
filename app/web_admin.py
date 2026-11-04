@@ -25,11 +25,14 @@ from fastapi.templating import Jinja2Templates
 
 from app.admin_service import AdminService
 from app.config import Settings
+from app.domain import REASON_LABELS
 from app.reports import GROUPINGS
 from app.rag.knowledge_base import KnowledgeBase
 
 log = logging.getLogger("web_admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+# Motivos en palabras de la coordinación (p. ej. distinguir alta demanda de falla técnica)
+templates.env.globals["reason_labels"] = REASON_LABELS
 
 # Un <input type="date"> vacío llega como "desde=" (cadena vacía), no ausente:
 # sin esto FastAPI responde 422. Vacío = sin fecha; una fecha mal escrita sigue

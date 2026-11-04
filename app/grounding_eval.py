@@ -155,7 +155,7 @@ def run(args) -> int:
     pending = [p for p in plan if (p[0], p[1], p[2]["q"]) not in done]
     print(f"{len(plan)} consultas en el plan, {len(pending)} pendientes -> {out}", flush=True)
     pipe, meter = build_pipeline(Path(args.env), Path(args.kb))
-    from app.domain import Reason
+    from app.domain import UNAVAILABLE_REASONS
     spent = 0
     with out.open("a", encoding="utf-8") as f:
         for n, (group, run_no, case) in enumerate(pending, 1):
@@ -174,7 +174,7 @@ def run(args) -> int:
                 if meter["daily_limit"]:
                     print(f"Groq avisó del tope diario; se detiene. {meter['daily_limit']}", flush=True)
                     return 3
-                if r.reason is Reason.LLM_UNAVAILABLE and retries < len(RETRY_WAITS):
+                if r.reason in UNAVAILABLE_REASONS and retries < len(RETRY_WAITS):
                     time.sleep(RETRY_WAITS[retries])
                     retries += 1
                     continue
@@ -207,7 +207,7 @@ def summarize(paths: list[str], cases_path: Path = CASES) -> str:
                 continue
             ans = [r for r in g if r["resultado"] == "answered"]
             der = [r for r in g if r["resultado"] == "derived"]
-            unavailable = [r for r in der if r["motivo"] == "llm_unavailable"]
+            unavailable = [r for r in der if r["motivo"] in ("llm_unavailable", "high_demand")]
             lines.append(f"  {group}: {len(g)} consultas, {len(ans)} respondidas, "
                          f"{len(der)} derivadas ({len(unavailable)} por proveedor no disponible), "
                          f"tokens {sum(r['tokens'] for r in g)}")

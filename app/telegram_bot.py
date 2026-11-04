@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import weakref
+from concurrent.futures import ThreadPoolExecutor
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
@@ -21,6 +23,7 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
 
 from app.config import Settings
 from app.domain import Outcome
+from app.rag.messages import QUEUED_MESSAGE
 from app.runtime import build_runtime
 from app.service import ConversationService
 from app.telegram_format import markdown_to_telegram_html, split_markdown, strip_markdown
@@ -50,7 +53,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(WELCOME)
 
 
+def _user_lock(bot_data: dict, user_id: int) -> asyncio.Lock:
+    """Un candado por estudiante: el bot atiende a varios a la vez
+    (BOT_CONCURRENCIA), pero los mensajes de un mismo estudiante van en orden,
+    para que su historial y su sesión no se mezclen."""
+    locks = bot_data.setdefault("user_locks", weakref.WeakValueDictionary())
+    lock = locks.get(user_id)
+    if lock is None:
+        lock = locks[user_id] = asyncio.Lock()
+    return lock
+
+
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with _user_lock(context.application.bot_data, update.effective_user.id):
+        await _answer(update, context)
+
+
+async def _answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     svc: ConversationService = context.application.bot_data["svc"]
     user = update.effective_user
     # effective_message y no update.message: si el estudiante EDITA su pregunta,
@@ -61,12 +80,22 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not text:
         return
 
+    loop = asyncio.get_running_loop()
+    notices = []
+
+    def on_queued(_info) -> None:
+        # Se llama desde el hilo de la consulta cuando entra a la fila (límite
+        # de uso del proveedor): el aviso sale ya, la respuesta llega después y
+        # el "escribiendo…" sigue mientras tanto.
+        notices.append(asyncio.run_coroutine_threadsafe(message.reply_text(QUEUED_MESSAGE), loop))
+
     typing_task = asyncio.create_task(_typing_loop(update.effective_chat.id, context.bot))
     try:
         # El pipeline es síncrono (red + CPU); to_thread evita bloquear el
         # bot mientras se atiende a otros estudiantes al mismo tiempo.
         result, metric_id = await asyncio.to_thread(
-            svc.handle_message, str(user.id), user.first_name or user.username or "", text)
+            svc.handle_message, str(user.id), user.first_name or user.username or "", text,
+            on_queued=on_queued)
     except Exception:
         log.exception("fallo procesando mensaje de %s", user.id)
         await message.reply_text(
@@ -75,6 +104,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     finally:
         typing_task.cancel()
+        for notice in notices:  # el aviso de fila siempre llega antes que la respuesta
+            try:
+                await asyncio.wrap_future(notice)
+            except Exception as e:  # noqa: BLE001 — sin aviso, la respuesta sale igual
+                log.warning("no se pudo enviar el aviso de fila: %s", e)
 
     keyboard = None
     if result.outcome is Outcome.ANSWERED:
@@ -113,7 +147,17 @@ async def on_rating(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 def build_application(cfg: Settings, token: str, fake_embeddings: bool = False) -> Application:
     rt = build_runtime(cfg, fake_embeddings=fake_embeddings)
     svc = ConversationService(cfg, rt.repo, rt.pipeline)
-    app = Application.builder().token(token).build()
+
+    async def post_init(application: Application) -> None:
+        # Cada consulta ocupa un hilo mientras espera al modelo (o a la fila): el
+        # grupo de hilos por defecto de asyncio (núcleos + 4) se quedaría corto.
+        asyncio.get_running_loop().set_default_executor(
+            ThreadPoolExecutor(max_workers=cfg.bot_concurrency + 4, thread_name_prefix="consulta"))
+
+    # concurrent_updates: sin esto python-telegram-bot atiende un mensaje a la
+    # vez y una consulta lenta (o en fila) detiene a todos los demás estudiantes.
+    app = (Application.builder().token(token).concurrent_updates(cfg.bot_concurrency)
+           .post_init(post_init).build())
     app.bot_data["svc"] = svc
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ayuda", start))

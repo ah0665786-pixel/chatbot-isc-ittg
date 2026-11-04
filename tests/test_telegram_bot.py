@@ -15,7 +15,9 @@ import pytest
 from telegram import Update
 
 from app import telegram_bot
+from app.adapters.llm_openai_compat import QueueInfo
 from app.domain import Outcome, RagResult, Reason
+from app.rag.messages import HIGH_DEMAND_MESSAGE, QUEUED_MESSAGE
 
 
 class FakeBot:
@@ -35,7 +37,7 @@ class FakeService:
     def __init__(self):
         self.questions: list[str] = []
 
-    def handle_message(self, external_id, display_name, text):
+    def handle_message(self, external_id, display_name, text, on_queued=None):
         self.questions.append(text)
         return RagResult(Outcome.ANSWERED, Reason.NONE, "El servicio social dura 480 horas."), "m1"
 
@@ -107,11 +109,14 @@ class RecordingBot(FakeBot):
 
 
 class ScriptedService:
-    def __init__(self, result=None, error=None, delay=0.0, rate_error=None):
+    def __init__(self, result=None, error=None, delay=0.0, rate_error=None, queued=False):
         self.result, self.error, self.delay, self.rate_error = result, error, delay, rate_error
+        self.queued = queued  # simula que la consulta entra a la fila por límite de uso
         self.ratings: list[tuple[str, int]] = []
 
-    def handle_message(self, external_id, display_name, text):
+    def handle_message(self, external_id, display_name, text, on_queued=None):
+        if self.queued and on_queued is not None:
+            on_queued(QueueInfo(position=1, estimated_wait=3.0))  # desde el hilo, como la fila real
         time.sleep(self.delay)  # corre en asyncio.to_thread, como el pipeline real
         if self.error:
             raise self.error
@@ -243,3 +248,103 @@ def test_calificacion_fallida_avisa_sin_tronar(data, svc):
     assert svc.ratings == []
     assert bot.answers == ["No se pudo registrar, pero gracias de todas formas."]
     assert bot.edited_markup == []  # los botones siguen para intentarlo de nuevo
+
+
+# ---- fila por límite de uso del proveedor ---------------------------------------
+def test_aviso_de_fila_llega_antes_de_la_respuesta_y_el_escribiendo_sigue(monkeypatch):
+    """Si la consulta entra a la fila, el estudiante recibe primero el aviso de
+    espera y luego la respuesta con sus botones; el "escribiendo…" sigue
+    mientras espera y se detiene al responder."""
+    monkeypatch.setattr(telegram_bot, "TYPING_INTERVAL_S", 0.01)
+    bot = RecordingBot()
+    svc = ScriptedService(_answered("El servicio social dura 480 horas."), delay=0.1, queued=True)
+    at_reply = _run_and_watch_typing(bot, svc)
+    texts = [m["text"] for m in bot.sent]
+    assert len(texts) == 2
+    assert "en fila" in texts[0] and texts[0] == QUEUED_MESSAGE
+    assert bot.sent[0].get("reply_markup") is None  # el aviso no se califica
+    assert "480 horas" in texts[1] and bot.sent[1]["reply_markup"] is not None
+    assert at_reply >= 2 and len(bot.actions) == at_reply
+
+
+def test_aviso_de_fila_y_respuesta_larga_dividida_con_botones_al_final():
+    bot = RecordingBot()
+    long = "\n\n".join(f"{i}. " + "requisito " * 60 for i in range(1, 15))
+    svc = ScriptedService(_answered(long), queued=True)
+    asyncio.run(telegram_bot.on_message(_update(bot, "message", "¿requisitos?"), _context(bot, svc)))
+    assert bot.sent[0]["text"] == QUEUED_MESSAGE
+    rest = bot.sent[1:]
+    assert len(rest) >= 2
+    assert all(m.get("reply_markup") is None for m in rest[:-1])
+    assert rest[-1]["reply_markup"] is not None
+
+
+def test_alta_demanda_tras_la_fila_no_lleva_botones():
+    bot = RecordingBot()
+    res = RagResult(Outcome.DERIVED, Reason.HIGH_DEMAND, HIGH_DEMAND_MESSAGE)
+    svc = ScriptedService(res, queued=True)
+    asyncio.run(telegram_bot.on_message(_update(bot, "message", "¿horario?"), _context(bot, svc)))
+    assert [m["text"] for m in bot.sent] == [QUEUED_MESSAGE, HIGH_DEMAND_MESSAGE]
+    assert all(m.get("reply_markup") is None for m in bot.sent)
+    assert "Coordinación" not in bot.sent[1]["text"]  # no se deriva
+
+
+def test_sin_fila_no_hay_aviso_de_espera():
+    bot = RecordingBot()
+    svc = ScriptedService(_answered("El servicio social dura 480 horas."))
+    asyncio.run(telegram_bot.on_message(_update(bot, "message", "¿servicio?"), _context(bot, svc)))
+    assert len(bot.sent) == 1 and QUEUED_MESSAGE not in bot.sent[0]["text"]
+
+
+def test_dos_estudiantes_se_atienden_a_la_vez_y_uno_mismo_en_orden():
+    """Con concurrent_updates, dos estudiantes distintos no se esperan entre sí;
+    dos mensajes del mismo estudiante sí van en orden (candado por estudiante)."""
+    import threading
+
+    class SlowService(ScriptedService):
+        def __init__(self):
+            super().__init__(_answered("ok, respuesta"), delay=0.2)
+            self.active = 0
+            self.peak = 0
+            self._lock = threading.Lock()
+
+        def handle_message(self, external_id, display_name, text, on_queued=None):
+            with self._lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            try:
+                return super().handle_message(external_id, display_name, text, on_queued)
+            finally:
+                with self._lock:
+                    self.active -= 1
+
+    def upd(bot, uid, text):
+        u = _update(bot, "message", text).to_dict()
+        u["message"]["from"]["id"] = u["message"]["chat"]["id"] = uid
+        return Update.de_json(u, bot)
+
+    async def scenario(uids):
+        bot, svc = RecordingBot(), SlowService()
+        ctx = _context(bot, svc)
+        t0 = time.perf_counter()
+        await asyncio.gather(*(telegram_bot.on_message(upd(bot, uid, f"pregunta {n}"), ctx)
+                               for n, uid in enumerate(uids)))
+        return svc.peak, time.perf_counter() - t0
+
+    peak, _ = asyncio.run(scenario([1, 2]))
+    assert peak == 2  # distintos estudiantes, al mismo tiempo
+    peak, _ = asyncio.run(scenario([1, 1]))
+    assert peak == 1  # el mismo estudiante, uno tras otro
+
+
+def test_build_application_atiende_varios_mensajes_a_la_vez(monkeypatch):
+    """python-telegram-bot atiende un mensaje a la vez si no se le pide otra cosa."""
+    from app.config import Settings
+
+    class FakeRuntime:
+        repo = pipeline = None
+
+    monkeypatch.setattr(telegram_bot, "build_runtime", lambda cfg, fake_embeddings=False: FakeRuntime())
+    cfg = Settings(bot_concurrency=7)
+    app = telegram_bot.build_application(cfg, "123:ABC")
+    assert app.concurrent_updates == 7

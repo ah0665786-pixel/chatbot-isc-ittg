@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from app.domain import Outcome, RagResult, Reason
+from app.domain import UNAVAILABLE_REASONS, Outcome, RagResult, Reason
 from app.rag import guards
 
 log = logging.getLogger("redteam")
@@ -66,7 +66,7 @@ class CaseResult:
 
 def evaluate(case: dict, result: RagResult) -> CaseResult:
     expect = case["expect"]
-    unavailable = result.reason is Reason.LLM_UNAVAILABLE
+    unavailable = result.reason in UNAVAILABLE_REASONS
     # provider="" si el filtro rápido lo detuvo, pero también cuando el
     # proveedor no respondió: en ese caso SÍ se intentó llegar al LLM.
     used_llm = bool(result.provider) or unavailable

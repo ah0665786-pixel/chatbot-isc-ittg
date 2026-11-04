@@ -5,6 +5,9 @@ se pueda probar sin necesitar la librería de Telegram."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
+
+from app.adapters.llm_openai_compat import QueueInfo, queue_listener
 
 from app.notify import Notifier, should_notify, student_notice
 
@@ -41,10 +44,33 @@ class ConversationService:
             self.notifier = Notifier(self.cfg, self.repo)
 
     def handle_message(self, external_id: str, display_name: str, text: str,
-                       canal: str = "telegram") -> tuple[RagResult, str]:
+                       canal: str = "telegram",
+                       on_queued: Callable[[QueueInfo], None] | None = None
+                       ) -> tuple[RagResult, str]:
         """Procesa un mensaje de un usuario y devuelve (resultado, id_metrica).
         Crea/reusa usuario y sesión, guarda ambos mensajes y registra la
-        métrica de la interacción (RF-I-01, RF-I-02, RF-I-04, RF-C-06)."""
+        métrica de la interacción (RF-I-01, RF-I-02, RF-I-04, RF-C-06).
+        on_queued: se llama a lo más una vez si la consulta tiene que esperar en
+        la fila por el límite de uso del proveedor (el canal avisa al estudiante)."""
+        if on_queued is None:
+            return self._handle(external_id, display_name, text, canal)
+        told = []
+
+        def once(info: QueueInfo) -> None:
+            # Una consulta puede entrar a la fila en su 1a llamada y otra vez al
+            # regenerar: el estudiante recibe un solo aviso.
+            if not told:
+                told.append(info)
+                on_queued(info)
+
+        token = queue_listener.set(once)
+        try:
+            return self._handle(external_id, display_name, text, canal)
+        finally:
+            queue_listener.reset(token)
+
+    def _handle(self, external_id: str, display_name: str, text: str,
+                canal: str) -> tuple[RagResult, str]:
         user_id = self.repo.get_or_create_user(external_id, display_name)
         conv_id = self.repo.get_or_create_conversation(user_id, canal)
         history = self.repo.get_history(conv_id, self.cfg.history_turns)

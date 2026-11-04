@@ -51,7 +51,7 @@
 <table>
   <tr><th>Motivo de derivación</th><th>Cantidad</th></tr>
   {% for reason, n in metrics.by_reason.items() %}
-  <tr><td>{{ reason }}</td><td>{{ n }}</td></tr>
+  <tr><td>{{ reason_labels.get(reason, reason) }}</td><td>{{ n }}</td></tr>
   {% endfor %}
 </table>
 {% endif %}

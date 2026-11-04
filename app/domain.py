@@ -33,7 +33,11 @@ class Reason(str, Enum):
     LOW_SIMILARITY = "low_similarity"      # nada en la base supera el umbral
     NOT_IN_CONTEXT = "not_in_context"      # el LLM dijo que el contexto no alcanza
     VALIDATION_FAILED = "validation_failed"
-    LLM_UNAVAILABLE = "llm_unavailable"
+    LLM_UNAVAILABLE = "llm_unavailable"    # falla técnica: ningún proveedor respondió
+    # Alta demanda: todos los proveedores en su límite de uso (HTTP 429) y la
+    # consulta no alcanzó lugar o tiempo en la fila. No es falla técnica: se
+    # resuelve sola y no se avisa a la coordinadora (ver app/notify.py).
+    HIGH_DEMAND = "high_demand"
     TOO_LONG = "too_long"                  # HU-01 CA-04
 
 
@@ -44,9 +48,15 @@ REASON_LABELS = {
     "low_similarity": "Tema no encontrado en los documentos",
     "not_in_context": "Sin información suficiente en los documentos",
     "validation_failed": "Respuesta no verificable contra los documentos",
-    "llm_unavailable": "Servicio de IA no disponible",
+    "llm_unavailable": "Servicio de IA no disponible (falla técnica)",
+    "high_demand": "Alta demanda (límite de uso del servicio de IA)",
     "too_long": "Pregunta demasiado larga",
 }
+
+
+# Motivos en los que el modelo no respondió (ni bien ni mal): las evaluaciones
+# los repiten o los marcan como inconclusos en vez de contarlos como fallas.
+UNAVAILABLE_REASONS = (Reason.LLM_UNAVAILABLE, Reason.HIGH_DEMAND)
 
 
 @dataclass

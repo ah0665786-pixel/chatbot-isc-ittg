@@ -8,7 +8,7 @@ from typing import Sequence
 
 from app.config import Settings
 from app.domain import Hit, Outcome, RagResult, Reason
-from app.adapters.llm_openai_compat import LLMUnavailable
+from app.adapters.llm_openai_compat import HighDemand, LLMUnavailable
 from app.ports import Embedder, LLMProvider
 from app.adapters.vectorstore_faiss import FaissStore
 from app.rag import grounding, guards
@@ -327,7 +327,9 @@ class RagPipeline:
                 if no_info_text:  # falló el reintento: vale la respuesta NO_INFO que ya había
                     return derive(Reason.NOT_IN_CONTEXT, hits, max_score, detail=no_info_text,
                                   provider=provider, model=model, attempts=attempt - 1)
-                return derive(Reason.LLM_UNAVAILABLE, hits, max_score, detail=str(e),
+                # Límite de uso (fila llena o espera vencida) != falla técnica
+                reason = Reason.HIGH_DEMAND if isinstance(e, HighDemand) else Reason.LLM_UNAVAILABLE
+                return derive(reason, hits, max_score, detail=str(e),
                               provider=provider, model=model, attempts=attempt - 1)
             timings[f"llm_{attempt}"] = time.perf_counter() - t
             provider, model = reply.provider, reply.model

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from app.adapters.db_sqlite import SqliteRepository
 from app.adapters.embedders import HashingEmbedder, SentenceTransformerEmbedder
-from app.adapters.llm_openai_compat import FallbackLLM, build_llm
+from app.adapters.llm_openai_compat import FallbackLLM, QueuePolicy, build_llm
 from app.config import Settings
 from app.ports import Embedder
 from app.rag.knowledge_base import KnowledgeBase
@@ -37,10 +37,15 @@ def build_repository(cfg: Settings) -> SqliteRepository:
     return SqliteRepository(cfg.db_path, cfg.session_timeout_minutes)
 
 
+def queue_policy(cfg: Settings) -> QueuePolicy:
+    return QueuePolicy(cfg.llm_queue_max, cfg.llm_queue_max_wait, cfg.llm_queue_reserve)
+
+
 def build_runtime(cfg: Settings, fake_embeddings: bool = False, rebuild: bool = False) -> Runtime:
     emb = build_embedder(cfg, fake_embeddings)
     kb = KnowledgeBase.open(cfg, emb, rebuild=rebuild)
-    llm = build_llm(cfg.llm_endpoints, cfg.llm_timeout, cfg.llm_max_retries, cfg.llm_total_budget)
+    llm = build_llm(cfg.llm_endpoints, cfg.llm_timeout, cfg.llm_max_retries, cfg.llm_total_budget,
+                    queue_policy(cfg))
     repo = build_repository(cfg)
     watcher = KBWatcher(kb_dir=cfg.kb_dir)
     return Runtime(cfg, emb, kb, llm, RagPipeline(cfg, emb, kb.store, llm, watcher=watcher), repo)
