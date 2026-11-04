@@ -21,8 +21,7 @@ from app.domain import Outcome, RagResult
 from app.adapters.db_sqlite import (  # mismos dataclasses, DDL y consulta de exportación
     CLAIMS_COLUMN, COLUMN_MIGRATIONS, FAILED_LOGINS_DDL, MODEL_REPLIES_COLUMN,
     NO_INFO_RETRIES_COLUMN, NOTICES_DDL, QUESTION_COLUMN, REMOVED_CLAIMS_COLUMN,
-    SEARCH_TIME_COLUMN, TOPIC_COLUMN, DerivationRow, claims_json, model_replies_json, MetricRow, MetricsSummary, derivations_query, export_query)
-from app.reports import percentile
+    SEARCH_TIME_COLUMN, TOPIC_COLUMN, DerivationRow, claims_json, model_replies_json, MetricRow, MetricsSummary, derivations_query, export_query, summarize_metrics)
 
 # Mismo esquema que SQLite (ver db_sqlite.py): TEXT para UUID/fechas por
 # portabilidad. ON CONFLICT y CHECK funcionan igual en PostgreSQL.
@@ -388,19 +387,4 @@ class PostgresRepository:
             c.execute(f"SELECT resultado, motivo_derivacion, "
                      f"tiempo_respuesta_seg FROM metricas {clause}", params)
             rows = c.fetchall()
-        total = len(rows)
-        answered = sum(1 for r in rows if r["resultado"] == "answered")
-        derived = total - answered
-        by_reason: dict[str, int] = {}
-        for r in rows:
-            if r["motivo_derivacion"]:
-                by_reason[r["motivo_derivacion"]] = by_reason.get(r["motivo_derivacion"], 0) + 1
-        times = [r["tiempo_respuesta_seg"] for r in rows if r["tiempo_respuesta_seg"] is not None]
-        return MetricsSummary(
-            total=total, answered=answered, derived=derived,
-            derivation_rate=(derived / total) if total else 0.0,
-            precision_rate=(answered / total) if total else 0.0,
-            avg_response_seconds=(sum(times) / len(times)) if times else None,
-            by_reason=by_reason,
-            p95_response_seconds=percentile(times),
-        )
+        return summarize_metrics(rows)

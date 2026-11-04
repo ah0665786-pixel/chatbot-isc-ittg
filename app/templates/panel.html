@@ -43,7 +43,8 @@
   <div class="card"><div class="n">{{ metrics.answered }}</div><div class="label">Respondidas</div></div>
   <div class="card"><div class="n">{{ metrics.derived }}</div><div class="label">Derivadas</div></div>
   <div class="card"><div class="n">{{ "%.1f"|format(metrics.precision_rate * 100) }}%</div><div class="label">Precisión (meta: 90%)</div></div>
-  <div class="card"><div class="n">{{ "%.1f"|format(metrics.derivation_rate * 100) }}%</div><div class="label">Tasa de derivación</div></div>
+  <div class="card"><div class="n">{{ "%.1f"|format(metrics.derivation_rate * 100) }}%</div><div class="label">Tasa de derivación{% if metrics.high_demand %} (de {{ metrics.attended }} atendidas){% endif %}</div></div>
+  <div class="card"><div class="n">{{ metrics.high_demand }}</div><div class="label">Sin atender por alta demanda</div></div>
   <div class="card"><div class="n">{{ "%.2fs"|format(metrics.avg_response_seconds) if metrics.avg_response_seconds is not none else "—" }}</div><div class="label">Tiempo prom. resp.</div></div>
   <div class="card"><div class="n">{{ "%.2fs"|format(metrics.p95_response_seconds) if metrics.p95_response_seconds is not none else "—" }}</div><div class="label">Tiempo p95 (meta: ≤ 30 s)</div></div>
 </div>
@@ -93,6 +94,7 @@ Ciclo escolar del TecNM: Enero-Junio, Verano (julio) y Agosto-Diciembre.</p>
 <div class="cards">
   <div class="card"><div class="n">{{ shown.stats.total }}</div><div class="label">Consultas</div></div>
   <div class="card"><div class="n">{{ "%.1f"|format(shown.stats.derivation_rate * 100) }}%</div><div class="label">Tasa de derivación</div></div>
+  <div class="card"><div class="n">{{ shown.stats.high_demand }}</div><div class="label">Sin atender por alta demanda</div></div>
   <div class="card"><div class="n">{{ "%.2fs"|format(shown.stats.avg_seconds) if shown.stats.avg_seconds is not none else "—" }}</div><div class="label">Tiempo promedio</div></div>
   <div class="card"><div class="n">{{ "%.2fs"|format(shown.stats.p95_seconds) if shown.stats.p95_seconds is not none else "—" }}</div><div class="label">Tiempo p95</div></div>
   <div class="card"><div class="n">{{ shown.stats.top_topic or "—" }}</div><div class="label">Tema más frecuente</div></div>
@@ -100,7 +102,8 @@ Ciclo escolar del TecNM: Enero-Junio, Verano (julio) y Agosto-Diciembre.</p>
 {% elif report.totals.total %}
 <div class="cards">
   <div class="card"><div class="n">{{ report.totals.total }}</div><div class="label">Consultas en el periodo</div></div>
-  <div class="card"><div class="n">{{ "%.1f"|format(report.totals.derivation_rate * 100) }}%</div><div class="label">Tasa de derivación</div></div>
+  <div class="card"><div class="n">{{ "%.1f"|format(report.totals.derivation_rate * 100) }}%</div><div class="label">Tasa de derivación{% if report.totals.high_demand %} (de {{ report.totals.attended }} atendidas){% endif %}</div></div>
+  <div class="card"><div class="n">{{ report.totals.high_demand }}</div><div class="label">Sin atender por alta demanda</div></div>
   <div class="card"><div class="n">{{ "%.2fs"|format(report.totals.avg_seconds) if report.totals.avg_seconds is not none else "—" }}</div><div class="label">Tiempo promedio</div></div>
   <div class="card"><div class="n">{{ "%.2fs"|format(report.totals.p95_seconds) if report.totals.p95_seconds is not none else "—" }}</div><div class="label">Tiempo p95 (meta: ≤ 30 s)</div></div>
 </div>
@@ -125,12 +128,13 @@ Ciclo escolar del TecNM: Enero-Junio, Verano (julio) y Agosto-Diciembre.</p>
 
 <h3>Por {{ groupings[report.grouping]|lower }}</h3>
 <table>
-  <tr><th>Periodo</th><th class="num">Consultas</th><th class="num">Derivadas</th><th class="num">Tasa de derivación</th>
+  <tr><th>Periodo</th><th class="num">Consultas</th><th class="num">Derivadas</th><th class="num">Tasa de derivación</th><th class="num">Alta demanda</th>
       <th class="num">Tiempo prom.</th><th class="num">p95</th><th>Tema más frecuente</th></tr>
   {% for g in report.groups %}
   <tr class="{{ '' if g.enough else 'poco' }}"><td>{{ g.period.label }}{% if not g.enough %} <span class="hint">(pocos datos)</span>{% endif %}</td>
     <td class="num">{{ g.stats.total }}</td><td class="num">{{ g.stats.derived }}</td>
     <td class="num">{{ "%.1f"|format(g.stats.derivation_rate * 100) }}%</td>
+    <td class="num">{{ g.stats.high_demand }}</td>
     <td class="num">{{ "%.2fs"|format(g.stats.avg_seconds) if g.stats.avg_seconds is not none else "—" }}</td>
     <td class="num">{{ "%.2fs"|format(g.stats.p95_seconds) if g.stats.p95_seconds is not none else "—" }}</td>
     <td>{{ g.stats.top_topic }}</td></tr>
@@ -138,7 +142,9 @@ Ciclo escolar del TecNM: Enero-Junio, Verano (julio) y Agosto-Diciembre.</p>
 </table>
 <p class="hint">"Pocos datos": menos de {{ report.min_queries }} consultas en ese periodo; sus porcentajes
 y su p95 cambian mucho con una sola consulta. "Sin clasificar": consultas registradas antes de
-que el sistema guardara el tema.</p>
+que el sistema guardara el tema. "Alta demanda": consultas que no se atendieron porque el
+servicio de IA estaba en su límite de uso (al estudiante se le pidió intentar en unos minutos);
+no cuentan como derivadas y la tasa de derivación se calcula sin ellas.</p>
 {% endif %}
 {% endif %}
 

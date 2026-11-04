@@ -54,6 +54,14 @@ REASON_LABELS = {
 }
 
 
+def is_high_demand(motivo: str | None) -> bool:
+    """Consulta que no se atendió por alta demanda. En la base queda como
+    resultado 'derived' con este motivo, pero en los reportes NO cuenta como
+    derivación (no se derivó a nadie ni se evaluó): es una cifra aparte, y la
+    tasa de derivación se calcula sobre las consultas atendidas."""
+    return motivo == Reason.HIGH_DEMAND.value
+
+
 # Motivos en los que el modelo no respondió (ni bien ni mal): las evaluaciones
 # los repiten o los marcan como inconclusos en vez de contarlos como fallas.
 UNAVAILABLE_REASONS = (Reason.LLM_UNAVAILABLE, Reason.HIGH_DEMAND)

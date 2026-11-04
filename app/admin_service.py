@@ -13,7 +13,7 @@ from pathlib import Path
 
 from app.adapters.db_sqlite import MetricsSummary, SqliteRepository
 from app.config import Settings
-from app.domain import REASON_LABELS
+from app.domain import REASON_LABELS, is_high_demand
 from app.rag.knowledge_base import IngestReport, KnowledgeBase
 from app.rag.loaders import SUPPORTED
 from app.rag.query_expansion import topic_label
@@ -27,17 +27,20 @@ CSV_HEADER = ["Fecha", "Pregunta", "Tema", "Resultado", "Motivo de derivación",
               "Tiempo de respuesta (s)", "Calificación (1-5)", "Tiempo de búsqueda (s)",
               "Aviso a la coordinadora"]
 RESULT_LABELS = {"answered": "Respondida", "derived": "Derivada"}
+# La alta demanda queda como "derived" en la base, pero no se derivó a nadie
+HIGH_DEMAND_RESULT = "Sin atender (alta demanda)"
 NOTICE_LABELS = {  # tabla avisos (app/notify.py)
     "enviado": "Enviado",
     "guardado": "Guardado sin enviar",
     "fallido": "Falló el envío",
 }
+# La tasa de derivación es sobre las consultas atendidas: la alta demanda va aparte
 REPORT_COLUMNS = ["Consultas", "Respondidas", "Derivadas", "Tasa de derivación (%)",
-                  "Tiempo promedio (s)", "Tiempo p95 (s)"]
+                  "Sin atender por alta demanda", "Tiempo promedio (s)", "Tiempo p95 (s)"]
 
 
 def _stats_cells(s) -> list:
-    return [s.total, s.answered, s.derived, _pct(s.derivation_rate),
+    return [s.total, s.answered, s.derived, _pct(s.derivation_rate), s.high_demand,
             _secs(s.avg_seconds), _secs(s.p95_seconds)]
 
 
@@ -176,7 +179,8 @@ class AdminService:
                 fecha.strftime("%Y-%m-%d %H:%M:%S"),
                 _csv_safe(r.pregunta or ""),
                 topic_label(r.tema),
-                RESULT_LABELS.get(r.resultado, r.resultado),
+                (HIGH_DEMAND_RESULT if is_high_demand(r.motivo_derivacion)
+                 else RESULT_LABELS.get(r.resultado, r.resultado)),
                 REASON_LABELS.get(r.motivo_derivacion, r.motivo_derivacion or ""),
                 _secs(r.tiempo_respuesta_seg),
                 "" if r.calificacion is None else r.calificacion,
@@ -217,7 +221,9 @@ class AdminService:
         if report.notice:
             w.writerow([]); w.writerow(["Aviso", _csv_safe(report.notice)])
         w.writerow([])
-        w.writerow(["Tema", "Consultas", "Derivadas", "Tasa de derivación (%)"])
+        w.writerow(["Tema", "Consultas", "Derivadas", "Tasa de derivación (%)",
+                    "Sin atender por alta demanda"])
         for t in report.topics:
-            w.writerow([_csv_safe(t.label), t.total, t.derived, _pct(t.derivation_rate)])
+            w.writerow([_csv_safe(t.label), t.total, t.derived, _pct(t.derivation_rate),
+                        t.high_demand])
         return out.getvalue()

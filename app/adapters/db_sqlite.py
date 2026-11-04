@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
-from app.domain import Outcome, RagResult
+from app.domain import Outcome, RagResult, is_high_demand
 from app.reports import percentile
 
 SCHEMA = """
@@ -142,6 +142,38 @@ class MetricsSummary:
     avg_response_seconds: float | None
     by_reason: dict[str, int]       # HU-08/HU-11: motivos de derivación
     p95_response_seconds: float | None = None  # RNF-EF-01: 95 % de consultas <= 30 s
+    # Sin atender por alta demanda (límite de uso del servicio de IA): no cuentan
+    # en derived ni en las tasas, que se calculan sobre total - high_demand.
+    high_demand: int = 0
+
+    @property
+    def attended(self) -> int:
+        return self.total - self.high_demand
+
+
+def summarize_metrics(rows) -> MetricsSummary:
+    """Resumen del panel (SQLite y PostgreSQL). rows: resultado,
+    motivo_derivacion y tiempo_respuesta_seg de cada consulta."""
+    total = len(rows)
+    high = sum(1 for r in rows if is_high_demand(r["motivo_derivacion"]))
+    answered = sum(1 for r in rows if r["resultado"] == "answered")
+    derived = total - answered - high
+    attended = total - high
+    by_reason: dict[str, int] = {}
+    for r in rows:
+        if r["motivo_derivacion"]:
+            by_reason[r["motivo_derivacion"]] = by_reason.get(r["motivo_derivacion"], 0) + 1
+    # Los tiempos sí incluyen la alta demanda: es lo que el estudiante esperó
+    times = [r["tiempo_respuesta_seg"] for r in rows if r["tiempo_respuesta_seg"] is not None]
+    return MetricsSummary(
+        total=total, answered=answered, derived=derived,
+        derivation_rate=(derived / attended) if attended else 0.0,
+        precision_rate=(answered / attended) if attended else 0.0,
+        avg_response_seconds=(sum(times) / len(times)) if times else None,
+        by_reason=by_reason,
+        p95_response_seconds=percentile(times),
+        high_demand=high,
+    )
 
 
 @dataclass
@@ -506,19 +538,4 @@ class SqliteRepository:
         rows = self._conn.execute(f"SELECT resultado, motivo_derivacion, "
                                   f"tiempo_respuesta_seg FROM metricas {clause}",
                                   params).fetchall()
-        total = len(rows)
-        answered = sum(1 for r in rows if r["resultado"] == "answered")
-        derived = total - answered
-        by_reason: dict[str, int] = {}
-        for r in rows:
-            if r["motivo_derivacion"]:
-                by_reason[r["motivo_derivacion"]] = by_reason.get(r["motivo_derivacion"], 0) + 1
-        times = [r["tiempo_respuesta_seg"] for r in rows if r["tiempo_respuesta_seg"] is not None]
-        return MetricsSummary(
-            total=total, answered=answered, derived=derived,
-            derivation_rate=(derived / total) if total else 0.0,
-            precision_rate=(answered / total) if total else 0.0,
-            avg_response_seconds=(sum(times) / len(times)) if times else None,
-            by_reason=by_reason,
-            p95_response_seconds=percentile(times),
-        )
+        return summarize_metrics(rows)

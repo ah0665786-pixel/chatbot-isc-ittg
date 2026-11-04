@@ -198,8 +198,18 @@ Por eso la alta demanda no se avisa. Queda en `metricas.motivo_derivacion` como
 aparte de "Servicio de IA no disponible (falla técnica)". Así la coordinadora ve cuántas
 consultas se perdieron por saturación, que es el dato que justifica el plan Developer.
 
-Ojo: como ya pasaba con `llm_unavailable`, estas consultas cuentan en la **tasa de
-derivación** del panel (resultado `derived`), aunque no se derivaron a nadie.
+**La alta demanda no cuenta en la tasa de derivación.** En la base queda como resultado
+`derived` con motivo `high_demand`, así que no hizo falta migrar nada. Pero el panel, el
+reporte y los CSV la cuentan aparte:
+
+- "Sin atender por alta demanda" es una tarjeta del panel y una columna del reporte y de su
+  CSV;
+- en el CSV de consultas, su resultado aparece como "Sin atender (alta demanda)".
+
+La tasa de derivación y la de precisión se calculan sobre las consultas **atendidas**
+(total menos alta demanda), porque esas consultas nunca llegaron a evaluarse. Los tiempos
+promedio y p95 sí las incluyen: es lo que esos estudiantes esperaron. Las fallas técnicas
+(`llm_unavailable`) siguen contando como derivadas, como antes.
 
 ### Si el bot se reinicia
 

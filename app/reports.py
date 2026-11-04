@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, tzinfo
 from typing import Iterable, Sequence
 
 from app.rag.query_expansion import topic_label
+from app.domain import is_high_demand
 
 GROUPINGS = {"semana": "Semana", "mes": "Mes", "ciclo": "Ciclo escolar"}
 
@@ -82,27 +83,48 @@ def percentile(values: Iterable[float], q: float = 0.95) -> float | None:
 
 
 # ---- estadísticas -------------------------------------------------------------
+def _high(row) -> bool:
+    return is_high_demand(getattr(row, "motivo_derivacion", None))
+
+
+def _is_derived(row) -> bool:
+    """Derivada de verdad: la alta demanda queda como 'derived' en la base,
+    pero no se derivó a nadie (ver domain.is_high_demand)."""
+    return row.resultado == "derived" and not _high(row)
+
+
 @dataclass
 class Stats:
     total: int = 0
     derived: int = 0
+    high_demand: int = 0  # sin atender por alta demanda: fuera de la tasa de derivación
     times: list[float] = field(default_factory=list, repr=False)
     topics: Counter = field(default_factory=Counter, repr=False)
 
     def add(self, row) -> None:
         self.total += 1
-        self.derived += row.resultado == "derived"
-        if row.tiempo_respuesta_seg is not None:
+        self.derived += _is_derived(row)
+        self.high_demand += _high(row)
+        if row.tiempo_respuesta_seg is not None:  # incluye la espera de la alta demanda
             self.times.append(row.tiempo_respuesta_seg)
         self.topics[row.tema] += 1
 
     @property
+    def attended(self) -> int:
+        """Consultas que el chatbot sí procesó (respondidas o derivadas)."""
+        return self.total - self.high_demand
+
+    @property
     def answered(self) -> int:
-        return self.total - self.derived
+        return self.attended - self.derived
 
     @property
     def derivation_rate(self) -> float:
-        return self.derived / self.total if self.total else 0.0
+        return self.derived / self.attended if self.attended else 0.0
+
+    @property
+    def high_demand_rate(self) -> float:
+        return self.high_demand / self.total if self.total else 0.0
 
     @property
     def avg_seconds(self) -> float | None:
@@ -123,10 +145,12 @@ class TopicStat:
     label: str
     total: int
     derived: int
+    high_demand: int = 0
 
     @property
     def derivation_rate(self) -> float:
-        return self.derived / self.total if self.total else 0.0
+        attended = self.total - self.high_demand
+        return self.derived / attended if attended else 0.0
 
 
 @dataclass
@@ -180,8 +204,9 @@ def build_report(rows: Sequence, desde: date | None, hasta: date | None, groupin
     totals = Stats()
     for r in selected:
         totals.add(r)
-    derived_by_topic = Counter(r.tema for r in selected if r.resultado == "derived")
-    topics = [TopicStat(t, topic_label(t), n, derived_by_topic[t])
+    derived_by_topic = Counter(r.tema for r in selected if _is_derived(r))
+    high_by_topic = Counter(r.tema for r in selected if _high(r))
+    topics = [TopicStat(t, topic_label(t), n, derived_by_topic[t], high_by_topic[t])
               for t, n in sorted(totals.topics.items(), key=lambda x: (-x[1], topic_label(x[0])))]
     derivations = sorted((t for t in topics if t.derived),
                          key=lambda t: (-t.derived, -t.derivation_rate, t.label))

@@ -14,6 +14,7 @@ from app.adapters.db_sqlite import SCHEMA, SqliteRepository
 from app.admin_service import AdminService
 from app.reports import period_of, percentile
 from app.web_admin import build_app
+from app.domain import Reason
 from tests.test_metrics_export import AUTH, TUXTLA, answered, ask, derived, parse, utc
 
 
@@ -213,14 +214,78 @@ def test_csv_del_reporte(cfg, kb, repo, conv):
     svc = service(cfg, kb, repo, 2)
     rows = parse(svc.export_report_csv(svc.report(agrupacion="mes", tz=TUXTLA)))
     assert rows[0] == ["Mes", "Desde", "Hasta", "Consultas", "Respondidas", "Derivadas",
-                       "Tasa de derivación (%)", "Tiempo promedio (s)", "Tiempo p95 (s)",
+                       "Tasa de derivación (%)", "Sin atender por alta demanda",
+                       "Tiempo promedio (s)", "Tiempo p95 (s)",
                        "Tema más frecuente", "Datos suficientes (mín. 2)"]
-    assert rows[1] == ["Octubre 2026", "01/10/2026", "31/10/2026", "1", "1", "0", "0.0",
+    assert rows[1] == ["Octubre 2026", "01/10/2026", "31/10/2026", "1", "1", "0", "0.0", "0",
                        "1.00", "1.00", "Titulación", "No"]
-    assert rows[2][0] == "Noviembre 2026" and rows[2][9] == "'=cmd"
-    assert rows[3][:4] == ["Total", "", "", "2"] and rows[3][8] == "1.00"
-    i = rows.index(["Tema", "Consultas", "Derivadas", "Tasa de derivación (%)"])
-    assert rows[i + 1:] == [["'=cmd", "1", "1", "100.0"], ["Titulación", "1", "0", "0.0"]]
+    assert rows[2][0] == "Noviembre 2026" and rows[2][10] == "'=cmd"
+    assert rows[3][:4] == ["Total", "", "", "2"] and rows[3][9] == "1.00"
+    i = rows.index(["Tema", "Consultas", "Derivadas", "Tasa de derivación (%)",
+                    "Sin atender por alta demanda"])
+    assert rows[i + 1:] == [["'=cmd", "1", "1", "100.0", "0"],
+                            ["Titulación", "1", "0", "0.0", "0"]]
+
+
+# ---- alta demanda: cifra aparte, fuera de la tasa de derivación -----------------------
+def _con_alta_demanda(repo, conv):
+    """2 respondidas, 1 derivada de verdad y 2 sin atender por alta demanda, en octubre."""
+    ask(repo, conv, "q1", answered(2.0), utc(2026, 10, 5, 18), tema="titulacion")
+    ask(repo, conv, "q2", answered(4.0), utc(2026, 10, 6, 18), tema="titulacion")
+    ask(repo, conv, "q3", derived(), utc(2026, 10, 7, 18), tema="titulacion")
+    ask(repo, conv, "q4", derived(Reason.HIGH_DEMAND), utc(2026, 10, 8, 18), tema="titulacion")
+    ask(repo, conv, "q5", derived(Reason.HIGH_DEMAND), utc(2026, 10, 9, 18), tema="bajas")
+
+
+def test_resumen_del_panel_separa_la_alta_demanda(repo, conv):
+    _con_alta_demanda(repo, conv)
+    s = repo.metrics_summary()
+    assert (s.total, s.answered, s.derived, s.high_demand, s.attended) == (5, 2, 1, 2, 3)
+    assert s.derivation_rate == pytest.approx(1 / 3)  # sobre las 3 atendidas, no 3/5
+    assert s.precision_rate == pytest.approx(2 / 3)
+    assert s.by_reason == {"not_in_context": 1, "high_demand": 2}
+
+
+def test_reporte_separa_la_alta_demanda(cfg, kb, repo, conv):
+    _con_alta_demanda(repo, conv)
+    rep = service(cfg, kb, repo).report(agrupacion="mes", tz=TUXTLA)
+    t = rep.totals
+    assert (t.total, t.answered, t.derived, t.high_demand) == (5, 2, 1, 2)
+    assert t.derivation_rate == pytest.approx(1 / 3) and t.high_demand_rate == 0.4
+    assert rep.groups[0].stats.high_demand == 2
+    by = {x.tema: x for x in rep.topics}
+    assert (by["titulacion"].derived, by["titulacion"].high_demand) == (1, 1)
+    assert by["titulacion"].derivation_rate == pytest.approx(1 / 3)
+    assert by["bajas"].derived == 0 and by["bajas"].derivation_rate == 0.0
+    assert [x.tema for x in rep.derivations] == ["titulacion"]  # bajas no "deriva"
+
+
+def test_csv_del_reporte_trae_la_alta_demanda_aparte(cfg, kb, repo, conv):
+    _con_alta_demanda(repo, conv)
+    svc = service(cfg, kb, repo)
+    rows = parse(svc.export_report_csv(svc.report(agrupacion="mes", tz=TUXTLA)))
+    head = rows[0]
+    total = next(r for r in rows if r and r[0] == "Total")
+    cell = dict(zip(head[3:10], total[3:10]))
+    assert cell == {"Consultas": "5", "Respondidas": "2", "Derivadas": "1",
+                    "Tasa de derivación (%)": "33.3", "Sin atender por alta demanda": "2",
+                    "Tiempo promedio (s)": cell["Tiempo promedio (s)"],
+                    "Tiempo p95 (s)": cell["Tiempo p95 (s)"]}
+    i = rows.index(["Tema", "Consultas", "Derivadas", "Tasa de derivación (%)",
+                    "Sin atender por alta demanda"])
+    topics = sorted(r[1:5] for r in rows[i + 1:])
+    assert topics == [["1", "0", "0.0", "1"], ["4", "1", "33.3", "1"]]
+
+
+def test_csv_de_consultas_marca_la_alta_demanda_como_sin_atender(cfg, kb, repo, conv):
+    _con_alta_demanda(repo, conv)
+    rows = parse(service(cfg, kb, repo).export_metrics_csv(tz=TUXTLA))
+    head = rows[0]
+    res, mot = head.index("Resultado"), head.index("Motivo de derivación")
+    got = [(r[res], r[mot]) for r in rows[1:]]
+    assert got.count(("Sin atender (alta demanda)",
+                      "Alta demanda (límite de uso del servicio de IA)")) == 2
+    assert sum(1 for r, _ in got if r == "Derivada") == 1
 
 
 def test_csv_del_reporte_trae_el_aviso(cfg, kb, repo, conv):
@@ -267,6 +332,18 @@ def test_panel_muestra_los_reportes(client, repo, conv):
                  "Por ciclo escolar", "Titulación", "Permisos", "Tiempo p95",
                  'href="/reportes/exportar.csv?desde=&amp;hasta=&amp;agrupacion=ciclo"'):
         assert text in html, text
+
+
+def test_panel_muestra_la_alta_demanda_aparte(client, repo, conv):
+    now = datetime.now(timezone.utc) - timedelta(hours=1)
+    ask(repo, conv, "q1", answered(), now, tema="titulacion")
+    ask(repo, conv, "q2", derived(), now, tema="titulacion")
+    ask(repo, conv, "q3", derived(Reason.HIGH_DEMAND), now, tema="titulacion")
+    html = client.get("/panel?agrupacion=mes", headers=AUTH).text
+    assert "Sin atender por alta demanda" in html
+    assert "50.0%" in html and "(de 2 atendidas)" in html  # 1 de 2, no 2 de 3
+    assert "66.7%" not in html
+    assert "Alta demanda (límite de uso del servicio de IA)" in html  # motivo en palabras
 
 
 def test_panel_con_fechas_vacias_y_periodo_sin_datos(client, repo, conv):

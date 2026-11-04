@@ -104,7 +104,7 @@ reinicie; un envío fallido no cuenta como aviso. Pruebas con reloj simulado en 
   python-telegram-bot los atendía de uno en uno.
 - **Respaldo y panel.** Respaldo gratuito recomendado: Cloudflare Workers AI con el mismo
   `gpt-oss-120b`. La cadena acepta `LLM_1` a `LLM_5`. El panel muestra los motivos con su
-  nombre en palabras.
+  nombre en palabras; la alta demanda es una cifra aparte, fuera de la tasa de derivación.
 - **Documentación y pruebas.** Detalle y fuentes en `docs/capacidad-y-costos.md`. Pruebas:
   `test_llm_queue.py` y `test_telegram_bot.py`.
 
