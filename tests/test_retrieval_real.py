@@ -125,9 +125,12 @@ def test_la_propuesta_con_la_pagina_del_manual_recupera_el_fragmento(pipeline, c
     "desde qué semestre puedo hacer el servicio",
 ])
 def test_el_70_por_ciento_del_servicio_social_llega_al_llm(pipeline, q):
-    """El 70% de créditos (confirmado por la coordinadora, 2026-11-05) solo está en
-    el glosario del Manual (pág. 183); el 11.4.1.3 (pág. 77) también debe llegar."""
+    """El 70% de créditos (confirmado por la coordinadora, 2026-11-05) está en el
+    glosario del Manual (pág. 183) y, dicho de forma directa, en el extracto
+    verificado (Extracto_Manual_Lineamientos_Servicio_Social.docx). Debe llegar
+    alguno de los dos, y también el 11.4.1.3 (pág. 77) con los 10 créditos."""
     hits = [h for h in pipeline.retrieve(q) if h.score >= pipeline.cfg.sim_threshold]
-    secciones = [h.chunk.section for h in hits]
-    assert "pág. 183" in secciones and "pág. 77" in secciones, secciones
-    assert any("70%" in h.chunk.text for h in hits)
+    fuentes = [f"{h.chunk.doc_name} {h.chunk.section}" for h in hits]
+    con_70 = [h for h in hits if "70%" in h.chunk.text
+              and (h.chunk.section == "pág. 183" or h.chunk.doc_id.startswith("extracto"))]
+    assert con_70 and any(h.chunk.section == "pág. 77" for h in hits), fuentes
