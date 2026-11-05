@@ -164,3 +164,7 @@ Guía de Residencia se retiraron. Todo se midió sin llamar al modelo (búsqueda
   (le falta "adeudo") y ss-03 (los 6 meses y 2 años no llegan entre los 5 primeros).
 - Los 8 casos a derivar no cambian: la similitud máxima queda igual.
 - `docs/eval_exactitud_revision.docx` y `.csv` se volvieron a generar con estas citas.
+- **ss-01 acepta dos fuentes** (`fuentes_aceptadas`): el glosario del Manual (pág. 183) o el
+  `Extracto_Manual_Lineamientos_Servicio_Social.docx`, que dice el 70% de forma directa.
+  `--verificar` revisa la cita en el extracto completo (no tiene páginas) y la clasificación da
+  por buena cualquiera de las dos fuentes.

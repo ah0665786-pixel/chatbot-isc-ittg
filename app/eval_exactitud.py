@@ -192,6 +192,17 @@ def verify(cases: list[dict], docs_dir: Path | None = None,
                 if len(_squash(frag)) >= 12 and _squash(frag) not in where:
                     problems.append(f"{cid}: la cita no aparece en {c['documento']} pág. {n}: "
                                     f"\"{frag.strip()[:70]}...\"")
+        # "fuentes_aceptadas": otro documento de la base que también sostiene la
+        # respuesta (p. ej. el extracto verificado del servicio social, sin páginas).
+        for x in c.get("fuentes_aceptadas", []):
+            if x["documento"] not in kb_docs or not (DOCS / x["documento"]).exists():
+                problems.append(f"{cid}: la fuente aceptada {x['documento']} no está en la base")
+                continue
+            whole = _squash(" ".join(_page_text(x["documento"], cache)))
+            for frag in re.split(r"\[\.\.\.\]|\[…\]", x["cita"]):
+                if len(_squash(frag)) >= 12 and _squash(frag) not in whole:
+                    problems.append(f"{cid}: la cita no aparece en {x['documento']}: "
+                                    f"\"{frag.strip()[:70]}...\"")
     return problems
 
 
@@ -229,8 +240,10 @@ def classify(case: dict, outcome: str, reason: str, text: str) -> Verdict:
         return Verdict("error", True, f"dice algo que el documento no dice: {added}")
     if missing:
         return Verdict("incompleta", True, f"le faltan hechos: {missing}")
-    if case.get("documento") and not _cites_document(text, case["documento"]):
-        return Verdict("acierto", True, f"no cita {case['documento']} (revisar la fuente)")
+    docs = [case["documento"]] if case.get("documento") else []
+    docs += [x["documento"] for x in case.get("fuentes_aceptadas", [])]
+    if docs and not any(_cites_document(text, d) for d in docs):
+        return Verdict("acierto", True, f"no cita {' ni '.join(docs)} (revisar la fuente)")
     return Verdict("acierto", False, "")
 
 
@@ -464,8 +477,12 @@ def review_rows(cases: list[dict]) -> list[list[str]]:
             pages = [str(c["pagina"])] + [str(x["pagina"]) for x in c.get("citas_adicionales", [])]
             source = (f"{_doc_name(c['documento'])}, pág. {', '.join(pages)} "
                       f"(numeral {c['numeral']})")
+            for x in c.get("fuentes_aceptadas", []):
+                source += f"; o bien {_doc_name(x['documento'])}"
         cita = "\n".join([c.get("cita", "")] + [f"(pág. {x['pagina']}) {x['cita']}"
-                                                 for x in c.get("citas_adicionales", [])])
+                                                 for x in c.get("citas_adicionales", [])]
+                         + [f"({_doc_name(x['documento'])}) {x['cita']}"
+                            for x in c.get("fuentes_aceptadas", [])])
         rows.append([str(n), TOPIC_NAMES.get(c["tema"], c["tema"]), c["q"], expected,
                      cita, source])
     return rows

@@ -63,7 +63,27 @@ def test_verify_detecta_cita_falsa_y_hecho_mal_escrito():
     assert any("regex inválida" in p for p in problems)
 
 
-BASE = {"Manual_de_Lineamientos_TecNM.pdf", "Reglamento de Estudiantes TecNM.pdf"}
+EXTRACTO = "Extracto_Manual_Lineamientos_Servicio_Social.docx"
+BASE = {"Manual_de_Lineamientos_TecNM.pdf", "Reglamento de Estudiantes TecNM.pdf", EXTRACTO}
+
+
+def test_ss01_acepta_la_cita_del_extracto_o_la_del_glosario():
+    ss01 = next(c for c in CASES if c["id"] == "ss-01")
+    assert [x["documento"] for x in ss01["fuentes_aceptadas"]] == [EXTRACTO]
+    respuesta = "Debes tener aprobado el 70 % de los créditos de tu plan de estudios."
+    for cita in ("(Extracto Manual Lineamientos Servicio Social)",  # como lo citó el bot
+                 "(Manual de Lineamientos TecNM, pág. 183)"):
+        v = ev.classify(ss01, "answered", "none", f"{respuesta} {cita}")
+        assert (v.category, v.doubtful) == ("acierto", False), cita
+    v = ev.classify(ss01, "answered", "none", f"{respuesta} (Reglamento de Estudiantes)")
+    assert v.doubtful and "revisar la fuente" in v.why
+    mala = json.loads(json.dumps(ss01))
+    mala["fuentes_aceptadas"][0]["cita"] = "el estudiante debe tener aprobado el 90% de sus créditos"
+    assert any(EXTRACTO in p and "no aparece" in p for p in ev.verify([mala], kb_docs=BASE))
+    sin_extracto = BASE - {EXTRACTO}
+    assert any("no está en la base" in p for p in ev.verify([ss01], kb_docs=sin_extracto))
+    row = ev.review_rows([ss01])[0]
+    assert "o bien Extracto Manual Lineamientos Servicio Social" in row[5] and "70%" in row[4]
 
 
 def test_base_solo_manual_y_reglamento_casos_marcados_con_propuesta():
