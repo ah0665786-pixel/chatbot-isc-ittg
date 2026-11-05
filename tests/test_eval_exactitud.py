@@ -63,6 +63,58 @@ def test_verify_detecta_cita_falsa_y_hecho_mal_escrito():
     assert any("regex inválida" in p for p in problems)
 
 
+BASE = {"Manual_de_Lineamientos_TecNM.pdf", "Reglamento de Estudiantes TecNM.pdf"}
+
+
+def test_base_solo_manual_y_reglamento_casos_marcados_con_propuesta():
+    """2026-11-05: la base quedó con el Manual y el Reglamento. Ningún caso vigente
+    cita otro documento; los afectados se marcan (no se borran) con su propuesta."""
+    for c in CASES:
+        assert ev.estado(c) in ev.ESTADOS, c["id"]
+        if c["esperado"] == ev.ANSWER and ev.estado(c) == ev.VIGENTE:
+            assert c["documento"] in BASE, c["id"]
+        if ev.estado(c) != ev.VIGENTE:
+            assert c["propuesta"]["nota"], c["id"]
+            assert ev.with_proposal(c)["documento"] in BASE, c["id"]
+    citaban_retirado = {c["id"] for c in CASES if c.get("documento") and c["documento"] not in BASE}
+    assert citaban_retirado == {"ss-01", "ss-02", "ss-03", "ss-06"}
+    assert all(ev.estado(c) != ev.VIGENTE for c in CASES if c["id"] in citaban_retirado)
+    assert ev.verify(CASES, kb_docs=BASE) == []
+
+
+def test_verify_detecta_documento_retirado_sin_marcar_y_revisa_la_propuesta():
+    ss = next(c for c in CASES if c["id"] == "ss-02")
+    sin_marca = {k: v for k, v in ss.items() if k not in ("estado", "propuesta")}
+    assert any("no está en la base de conocimiento" in p
+               for p in ev.verify([sin_marca], kb_docs=BASE))
+    mala = json.loads(json.dumps(ss))
+    mala["propuesta"]["cita"] = "El servicio social dura tres años y se paga con beca."
+    assert any("no aparece" in p for p in ev.verify([mala], kb_docs=BASE))
+    sin_nota = json.loads(json.dumps(ss))
+    sin_nota["propuesta"].pop("nota")
+    assert any("le falta su propuesta" in p for p in ev.verify([sin_nota], kb_docs=BASE))
+    assert any("estado desconocido" in p
+               for p in ev.verify([{**ss, "estado": "quien sabe"}], kb_docs=BASE))
+
+
+def test_kb_documents_lee_el_manifiesto(tmp_path):
+    assert ev.kb_documents(tmp_path) is None
+    (tmp_path / "manifest.json").write_text(json.dumps(
+        [{"name": "Manual_de_Lineamientos_TecNM.pdf"},
+         {"name": "Viejo.pdf", "active": False}]), encoding="utf-8")
+    assert ev.kb_documents(tmp_path) == {"Manual_de_Lineamientos_TecNM.pdf"}
+
+
+def test_correr_omite_los_marcados_para_corregir(monkeypatch, capsys):
+    seen = {}
+    monkeypatch.setattr(ev, "run", lambda cases, *a: seen.setdefault("ids", [c["id"] for c in cases]) and 0)
+    assert ev.main(["--correr", "--si-gastar", "--out", "x.jsonl"]) == 0
+    omitted = {c["id"] for c in CASES if ev.estado(c) in ev.NO_CORRER}
+    assert omitted == {"ss-01", "ss-02", "ss-03", "ss-06"}
+    assert omitted.isdisjoint(seen["ids"]) and len(seen["ids"]) == len(CASES) - len(omitted)
+    assert "Se omiten 4 casos" in capsys.readouterr().out
+
+
 # ---- clasificación --------------------------------------------------------------------------
 BAJA = next(c for c in CASES if c["id"] == "baja-01")
 DATOS = next(c for c in CASES if c["id"] == "der-01")

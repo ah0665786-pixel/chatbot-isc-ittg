@@ -130,3 +130,32 @@ aparte.
 Cuando la coordinadora los devuelva, se corrigen los casos marcados "corregir" en
 `data/eval_exactitud.jsonl`. Luego `validacion` pasa a `validado por la coordinadora (FECHA)`,
 y se vuelven a generar los dos archivos con `--revision`.
+
+## Base solo con el Manual y el Reglamento (5 de noviembre de 2026)
+
+La base de conocimiento quedó con `Manual_de_Lineamientos_TecNM.pdf` y
+`Reglamento de Estudiantes TecNM.pdf` (495 fragmentos); los 14 lineamientos sueltos y la
+Guía de Residencia se retiraron. Medido sin llamar al modelo (búsqueda real, índice viejo
+contra nuevo). Ningún caso se borró: los afectados llevan `estado` y `propuesta`.
+
+| Estado | Casos | Qué hacer |
+|---|---|---|
+| `corregir_pagina_manual` | ss-02, ss-03 | Cambiar la cita a la página del Manual de la propuesta (ya verificada con `--verificar`). |
+| `respuesta_cambia` | ss-01, ss-06 | El Manual no da la cifra del lineamiento (70% de créditos; 20 días hábiles para el plan de trabajo). La propuesta trae la nueva respuesta, cita y hechos; la coordinadora decide si se responde así o se deriva. |
+| `pierde_recuperacion` | res-05, tras-02, tras-03, conv-01, act-01 | El Manual lo dice, pero su fragmento ya no llega entre los 5 primeros (lugares 7 a 30). Ajustar la expansión de consulta del tema o aceptar que se derive. |
+| `fuera_de_base` | (ninguno) | Solo estaba en un documento retirado: debe derivarse. |
+
+- **Citaban un documento retirado:** ss-01, ss-02, ss-03 y ss-06 (Lineamiento de Servicio
+  Social). Los otros 36 casos a responder citan el Manual.
+- **Mejoran** (su página del Manual ahora sí llega, porque ya no la desplazan los
+  lineamientos): baja-03, act-02, perm-02, conv-02 y conv-03.
+- **Ya fallaban antes** y siguen igual (no los causa el cambio): plan-03, res-03, tit-05,
+  perm-01 y tras-01.
+- Los 8 casos a derivar no cambian: la similitud máxima queda igual o un poco más baja.
+- `--verificar` revisa ahora que el documento citado esté en el índice (`manifest.json` de
+  `--kb`) y, en los casos marcados, revisa la cita y los hechos de la propuesta.
+  `--correr` omite los marcados `corregir_pagina_manual`, `respuesta_cambia` y
+  `fuera_de_base` hasta corregirlos, para no gastar cuota en resultados engañosos.
+- Pendiente: los archivos para la coordinadora (`eval_exactitud_revision.docx` y `.csv`)
+  todavía muestran la cita del lineamiento retirado en ss-01, ss-02, ss-03 y ss-06.
+  Vuelve a generarlos con `--revision` cuando se acepten las propuestas.

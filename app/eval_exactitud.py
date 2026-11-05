@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import statistics
 import sys
@@ -78,19 +79,70 @@ def _page_text(doc: str, cache: dict) -> list[str]:
     return cache[doc]
 
 
-def verify(cases: list[dict], docs_dir: Path | None = None) -> list[str]:
+# Campo "estado" (2026-11-05, base solo con el Manual de Lineamientos y el
+# Reglamento de Estudiantes). Sin él, el caso está vigente. Los marcados se
+# quedan en el conjunto con su "propuesta" (nota y, si cambia, documento, página,
+# numeral, cita, respuesta_esperada o hechos):
+VIGENTE = "vigente"
+ESTADOS = {
+    VIGENTE: "vigente",
+    "corregir_pagina_manual": "el Manual repite lo del documento retirado: cambiar la cita a esa página",
+    "pierde_recuperacion": "el Manual lo dice, pero ese fragmento ya no llega al modelo",
+    "respuesta_cambia": "el Manual lo dice distinto: cambia la respuesta esperada",
+    "fuera_de_base": "solo estaba en un documento retirado: debe derivarse",
+}
+# Estos no se corren con --correr hasta corregirlos: sus hechos o su cita ya no
+# corresponden a la base, y gastarían cuota para un resultado engañoso.
+NO_CORRER = {"corregir_pagina_manual", "respuesta_cambia", "fuera_de_base"}
+PROPOSAL_FIELDS = ("documento", "pagina", "numeral", "cita", "respuesta_esperada", "hechos")
+
+
+def estado(case: dict) -> str:
+    return case.get("estado", VIGENTE)
+
+
+def with_proposal(case: dict) -> dict:
+    """El caso con su propuesta aplicada (lo que quedaría al corregirlo)."""
+    prop = case.get("propuesta") or {}
+    return {**case, **{k: v for k, v in prop.items() if k in PROPOSAL_FIELDS}}
+
+
+def kb_documents(kb_dir: Path | None = None) -> set[str] | None:
+    """Nombres de los documentos en la base de conocimiento (manifest.json del
+    índice, KB_DIR o data/kb). None si no hay índice en esta máquina."""
+    kb_dir = Path(kb_dir or os.environ.get("KB_DIR") or ROOT / "data" / "kb")
+    mp = kb_dir / "manifest.json"
+    if not mp.exists():
+        return None
+    return {d["name"] for d in json.loads(mp.read_text("utf-8")) if d.get("active", True)}
+
+
+def verify(cases: list[dict], docs_dir: Path | None = None,
+           kb_docs: set[str] | None = None) -> list[str]:
     """Problemas del conjunto, sin llamar al modelo:
     - cada fragmento de la cita (separados por "[...]") está en la página citada
       del PDF (o en la siguiente, si la cita cruza de página);
     - las expresiones regulares compilan;
     - la respuesta esperada cumple sus propios hechos (si no, el hecho está mal escrito);
-    - todos siguen pendientes de validación o ya validados, con su campo."""
+    - todos siguen pendientes de validación o ya validados, con su campo;
+    - el documento citado está en la base de conocimiento (kb_docs; si no se da,
+      los PDF de data/docs): un caso que cita un documento retirado debe estar
+      marcado con "estado" y traer su propuesta. En los marcados se revisa la
+      propuesta (la cita nueva en su página, la respuesta nueva con sus hechos)."""
     global DOCS
     if docs_dir is not None:
         DOCS = docs_dir
+    if kb_docs is None:
+        kb_docs = {p.name for p in DOCS.glob("*") if p.is_file()}
     problems, cache = [], {}
     for c in cases:
         cid = c["id"]
+        st = estado(c)
+        if st not in ESTADOS:
+            problems.append(f"{cid}: estado desconocido {st!r}")
+        elif st != VIGENTE and not (c.get("propuesta") or {}).get("nota"):
+            problems.append(f"{cid}: está marcado como {st} y le falta su propuesta (nota)")
+        c = with_proposal(c)
         for key in ("id", "tema", "q", "esperado", "respuesta_esperada", "hechos", "validacion"):
             if key not in c:
                 problems.append(f"{cid}: falta el campo {key}")
@@ -112,6 +164,10 @@ def verify(cases: list[dict], docs_dir: Path | None = None) -> list[str]:
             problems.append(f"{cid}: la respuesta esperada no cumple sus hechos: {missing}")
         if added:
             problems.append(f"{cid}: la respuesta esperada choca con 'no incluye': {added}")
+        if c["documento"] not in kb_docs:
+            problems.append(f"{cid}: cita {c['documento']}, que no está en la base de "
+                            "conocimiento: márcalo con estado y propuesta")
+            continue
         if not (DOCS / c["documento"]).exists():
             problems.append(f"{cid}: no existe el documento {c['documento']}")
             continue
@@ -465,9 +521,14 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     cases = load_cases(a.casos)
     if a.verificar:
-        problems = verify(cases)
+        problems = verify(cases, kb_docs=kb_documents(a.kb))
         print("\n".join(problems) if problems else f"{len(cases)} casos sin problemas: las citas "
               "están en sus páginas y las respuestas esperadas cumplen sus hechos.")
+        marked = [c for c in cases if estado(c) != VIGENTE]
+        if marked:
+            print(f"\n{len(marked)} casos marcados (se revisó su propuesta):")
+            for c in marked:
+                print(f"  {c['id']:8} {estado(c):22} {c['propuesta']['nota']}")
         return 1 if problems else 0
     if a.estimar:
         est = estimate(cases, local_pipeline(a.kb), load_history())
@@ -482,7 +543,11 @@ def main(argv=None) -> int:
         if not a.si_gastar or not a.out:
             print("--correr gasta cuota de Groq: agrega --si-gastar y --out ARCHIVO.jsonl")
             return 2
-        return run(cases, a.env, a.kb, a.out, a.tope_tokens)
+        skipped = [c["id"] for c in cases if estado(c) in NO_CORRER]
+        if skipped:
+            print(f"Se omiten {len(skipped)} casos marcados para corregir: {', '.join(skipped)}")
+        return run([c for c in cases if estado(c) not in NO_CORRER], a.env, a.kb, a.out,
+                   a.tope_tokens)
     if a.resumen:
         rows = [json.loads(l) for l in a.resumen.read_text("utf-8").splitlines() if l.strip()]
         print(report(rows, cases, a.resumen.with_name(a.resumen.stem + "_revision.csv")))
