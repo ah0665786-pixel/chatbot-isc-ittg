@@ -425,3 +425,32 @@ def test_migracion_agrega_afirmaciones_sin_perder_datos():
         assert (row["n"], row["q"], row["a"]) == (1, 0, None)
     finally:
         repo.close()
+
+
+def test_sync_documents_desactiva_los_que_ya_no_estan_sin_tocar_metricas():
+    # 2026-11-05: base solo con el Manual y el Reglamento; los retirados quedan
+    # con activo=0 (no se borran) y las métricas siguen citando su documento.
+    repo = _fresh_repo()
+    doc = lambda i, n: {"doc_id": i, "name": n, "version": "", "n_chunks": 3,
+                        "indexed_at": "2026-10-23T00:00:00+00:00"}
+    manual, regl, ss = (doc("manual", "Manual.pdf"), doc("reglamento", "Reglamento.pdf"),
+                        doc("servicio-social", "Lineamiento-Servicio-Social.pdf"))
+    repo.sync_documents([manual, regl, ss])
+    uid = repo.get_or_create_user("12345", "Isagi")
+    cid = repo.get_or_create_conversation(uid)
+    hit = Hit(Chunk("servicio-social", "Lineamiento-Servicio-Social.pdf", 2, "x"), 0.9)
+    repo.record_metric(cid, None, RagResult(Outcome.ANSWERED, Reason.NONE, "r", [hit], 0.9,
+                                            "groq", "m", 1, {"total": 1.0}, "ok", []))
+    repo.sync_documents([manual, regl])
+    with repo._tx() as c:
+        c.execute("SELECT id_documento, activo FROM documentos")
+        activo = {r["id_documento"]: r["activo"] for r in c.fetchall()}
+        c.execute("SELECT doc_id, doc_name FROM metricas_fragmentos")
+        frag = [(r["doc_id"], r["doc_name"]) for r in c.fetchall()]
+    assert activo == {"manual": 1, "reglamento": 1, "servicio-social": 0}
+    assert frag == [("servicio-social", "Lineamiento-Servicio-Social.pdf")]
+    repo.sync_documents([manual, regl, ss])
+    repo.sync_documents([])  # manifiesto vacío: no desactiva nada
+    with repo._tx() as c:
+        c.execute("SELECT COUNT(*) AS n FROM documentos WHERE activo=1")
+        assert c.fetchone()["n"] == 3

@@ -23,11 +23,13 @@ from app.rag.query_expansion import classify_topic
 def sync_kb_to_repo(kb: KnowledgeBase, repo: SqliteRepository) -> None:
     """Refleja el manifiesto de la base de conocimiento (FAISS) en la tabla
     DOCUMENTOS de la base de datos, para que las consultas de reportes
-    (HU-13) puedan unir métricas con documentos sin abrir el índice."""
+    (HU-13) puedan unir métricas con documentos sin abrir el índice.
+    Los documentos que ya no están en el manifiesto quedan con activo=0 (ver
+    sync_documents)."""
     repo.sync_documents([
         {"doc_id": d.doc_id, "name": d.name, "version": d.version,
          "n_chunks": d.n_chunks, "indexed_at": d.indexed_at}
-        for d in kb.docs.values()])
+        for d in kb.docs.values() if d.active])
 
 
 @dataclass

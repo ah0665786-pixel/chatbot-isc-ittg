@@ -124,6 +124,7 @@ class AdminService:
     repo: SqliteRepository
 
     def list_documents(self) -> list[DocumentInfo]:
+        self.kb.reload_if_changed()  # pudo reindexarse desde la CLI
         return sorted(
             (DocumentInfo(d.doc_id, d.name, d.version, d.n_chunks, d.indexed_at)
              for d in self.kb.docs.values()),
@@ -150,6 +151,9 @@ class AdminService:
         self.cfg.docs_dir.mkdir(parents=True, exist_ok=True)
         dest = self.cfg.docs_dir / filename
         dest.write_bytes(content)
+        # Antes de agregar: si el índice cambió en disco desde que arrancó el
+        # panel, se parte del índice en disco y no de la copia vieja en memoria.
+        self.kb.reload_if_changed()
         report = self.kb.ingest_file(dest, version)
         if report.status in ("added", "replaced"):
             self.kb.save()

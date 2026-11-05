@@ -112,3 +112,28 @@ def test_upload_with_windows_forbidden_characters_does_not_crash(kb, cfg):
     assert "<" not in report.name and ">" not in report.name
     saved = [p for p in cfg.docs_dir.iterdir() if "img src" in p.name]
     assert len(saved) == 1 and "<" not in saved[0].name
+
+
+def test_panel_ve_la_reindexacion_hecha_desde_la_cli_y_no_la_revierte(kb, cfg, embedder, tmp_path):
+    # 2026-11-05: se reindexó solo con 2 documentos desde la CLI mientras el panel
+    # seguía abierto. El panel listaba los viejos y, al subir uno, habría guardado
+    # su copia en memoria encima del índice nuevo (los retirados regresaban).
+    import os
+    from app.rag.knowledge_base import KnowledgeBase
+    s = svc(kb, cfg)
+    assert {d.name for d in s.list_documents()} == {"Reglamento Escolar.txt", "Residencia.txt"}
+    nuevo = KnowledgeBase.open(cfg, embedder, rebuild=True)
+    nuevo.ingest_file(cfg.docs_dir / "Reglamento Escolar.txt")
+    nuevo.save()
+    mp = cfg.kb_dir / "manifest.json"
+    st = mp.stat()
+    os.utime(mp, (st.st_atime + 5, st.st_mtime + 5))
+    assert {d.name for d in s.list_documents()} == {"Reglamento Escolar.txt"}
+    otra = KnowledgeBase.open(cfg, embedder, rebuild=True)  # otra vez desde la CLI,
+    otra.ingest_file(cfg.docs_dir / "Residencia.txt")       # ahora sin listar antes de subir
+    otra.save()
+    os.utime(mp, (st.st_atime + 10, st.st_mtime + 10))
+    content = ("Requisitos de titulación: haber acreditado el 100% de créditos. " * 10).encode()
+    assert s.upload_document("Titulacion.txt", content).status == "added"
+    disco = KnowledgeBase.open(cfg, embedder)
+    assert {d.name for d in disco.docs.values()} == {"Residencia.txt", "Titulacion.txt"}

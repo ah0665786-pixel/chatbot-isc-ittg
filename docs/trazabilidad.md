@@ -124,6 +124,35 @@ de prueba aparte, con `test_repository_postgres.py::test_arranque_no_espera_a_un
 esperó los 2.0 s del `lock_timeout` de la prueba y falló con `LockNotAvailable`; con la corrección
 arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 
+✅ **Resuelto el 2026-11-05: base de conocimiento solo con el Manual de Lineamientos y el
+Reglamento de Estudiantes** (RF-RN-02, UC-15). Quedan `Manual_de_Lineamientos_TecNM.pdf` y
+`Reglamento de Estudiantes TecNM.pdf` (495 fragmentos); se retiraron los 12 lineamientos
+sueltos, el Lineamiento de Residencia 2015 y la Guía de Residencia 2022 (747 fragmentos antes).
+Respaldo y cómo restaurarlo: `C:\ChatbotSis\chatbot-isc-respaldo6-11-05_solo_manual_reglamento\RESTAURAR.md`.
+- **Tabla `documentos`.** `sync_documents` solo hacía upsert: los retirados seguían con
+  `activo=1` (también el Manual-snest, retirado el 31 de octubre). Ahora los que faltan en el
+  manifiesto quedan con `activo=0`; no se borran, para conservar su nombre, versión y fecha, y
+  se reactivan al volver a indexarlos. Las métricas no dependen de esa tabla
+  (`metricas_fragmentos` guarda su propio `doc_name`). En la base real: 2 activos y 15
+  desactivados, con los conteos de métricas iguales antes y después.
+- **Panel.** Listaba los documentos que leyó al arrancar y, al subir uno, habría guardado su
+  copia vieja en memoria encima de un índice reindexado desde la CLI (los retirados
+  regresaban). Ahora `KnowledgeBase.reload_if_changed` vuelve a leer el índice si cambió
+  `manifest.json`, antes de listar y antes de subir.
+- **Guardado atómico.** Cada archivo del índice se escribe aparte y se cambia de golpe
+  (`os.replace`), con `manifest.json` al final, que es el que vigila `KBWatcher`.
+- **Impacto, sin llamar al modelo.** En `data/retrieval_cases.jsonl`, 8 de 60 preguntas
+  pierden su fragmento (residencia 4, actividades complementarias 3, convalidación 1);
+  quedan marcadas con `estado` y `propuesta` y corren como falla esperada. Otras 11 siguen
+  pasando, ahora con la página equivalente del Manual. En el conjunto de evaluación (rama
+  `eval-exactitud`), 4 casos citaban el Lineamiento de Servicio Social y 9 quedan marcados
+  (ver `docs/eval_exactitud.md`).
+- Pruebas: `test_repository.py` y `test_repository_postgres.py`
+  (`test_sync_documents_desactiva_los_que_ya_no_estan_sin_tocar_metricas`),
+  `test_store_kb.py` (guardado y recarga), `test_admin_service.py`
+  (`test_panel_ve_la_reindexacion_hecha_desde_la_cli_y_no_la_revierte`) y
+  `test_retrieval_real.py` (estados y propuestas).
+
 ## 2. Numeración de HU: código (Lista A) → protocolo (Lista B)
 
 | Cita en el código | Dónde | Corresponde en la Lista B |
@@ -290,7 +319,7 @@ arranca sin esperar y pasan las 13 pruebas de PostgreSQL.
 | `data/redteam_2026-10-22_2346.json` | RNF-SE-04: 20/20 con LLM real, 0 inconclusos |
 | `data/redteam_2026-10-22_2328.json` | Corrida previa (19/20, falla B8) |
 | `data/loadtest_2026-10-22_2332.json` | RNF-EF-01/02: 20 usuarios, base completa, p95 1.78 s, 0 errores (LLM simulado) |
-| `data/retrieval_cases.jsonl` + `tests/test_retrieval_real.py` | RF-I-03: 54/54 preguntas con el fragmento correcto en el top 5; con `tests/test_topics.py`, 62/62 temas bien clasificados (N11) |
+| `data/retrieval_cases.jsonl` + `tests/test_retrieval_real.py` | RF-I-03: 54/54 preguntas con el fragmento correcto en el top 5 (con 16 documentos); desde el 2026-11-05, con el Manual y el Reglamento, 52/60 y 8 marcadas con `estado`; con `tests/test_topics.py`, 62/62 temas bien clasificados (N11) |
 | `docs/capacidad-y-costos.md` | RNF-EF-02 con LLM real y límites del plan gratuito de Groq |
 | Tabla `metricas` (base real) | RNF-EF-01: 17 consultas, prom. 0.99 s, p95 2.00 s (calculado por el panel, 2026-10-26) |
 | Suite de pruebas | 415 aprobadas, 15 omitidas sin PostgreSQL (`test_repository_postgres.py` 15/15 en Docker con PostgreSQL) |

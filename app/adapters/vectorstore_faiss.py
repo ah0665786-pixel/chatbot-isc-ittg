@@ -4,6 +4,7 @@ para negarse a mezclar vectores de modelos distintos."""
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Sequence
@@ -12,6 +13,16 @@ import faiss
 import numpy as np
 
 from app.domain import Chunk, Hit
+
+
+def atomic_write(path: Path, data: bytes) -> None:
+    """Escribe en path.tmp y lo cambia por path de un solo golpe (os.replace)."""
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
 
 class IncompatibleIndex(Exception):
@@ -64,14 +75,17 @@ class FaissStore:
     # ---- persistencia (bytes en vez de rutas: evita problemas de FAISS con
     #      rutas con acentos/espacios en Windows) ---------------------------
     def save(self, directory: Path) -> None:
+        """Cada archivo se escribe aparte (.tmp) y se cambia de golpe con
+        os.replace: quien lea el índice mientras se guarda ve el archivo viejo
+        o el nuevo completo, nunca uno a medias. KnowledgeBase.save escribe
+        manifest.json al final, que es lo que vigila KBWatcher."""
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "index.faiss").write_bytes(faiss.serialize_index(self._index).tobytes())
-        with (directory / "chunks.jsonl").open("w", encoding="utf-8") as f:
-            for c in self._chunks:
-                f.write(json.dumps(asdict(c), ensure_ascii=False) + "\n")
-        (directory / "meta.json").write_text(
-            json.dumps({"embed_model": self.embed_name, "dim": self.dim,
-                        "n_chunks": len(self._chunks)}, indent=2), encoding="utf-8")
+        chunks = "".join(json.dumps(asdict(c), ensure_ascii=False) + "\n" for c in self._chunks)
+        meta = json.dumps({"embed_model": self.embed_name, "dim": self.dim,
+                           "n_chunks": len(self._chunks)}, indent=2)
+        atomic_write(directory / "index.faiss", faiss.serialize_index(self._index).tobytes())
+        atomic_write(directory / "chunks.jsonl", chunks.encode("utf-8"))
+        atomic_write(directory / "meta.json", meta.encode("utf-8"))
 
     @classmethod
     def load(cls, directory: Path, dim: int, embed_name: str) -> "FaissStore":

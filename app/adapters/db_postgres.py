@@ -355,6 +355,13 @@ class PostgresRepository:
 
     # ---- documentos (espejo del manifiesto de la base de conocimiento) ------
     def sync_documents(self, docs: list[dict]) -> None:
+        """Upsert de los documentos del manifiesto y activo=0 para los que ya
+        no están. Se desactivan en vez de borrarse: la fila conserva nombre,
+        versión y fecha de indexación del documento retirado, y basta volver a
+        indexarlo para reactivarlo. Las métricas no dependen de esta tabla
+        (metricas_fragmentos guarda su propio doc_name). Con la lista vacía no
+        se desactiva nada: un manifiesto vacío es más probable un KB_DIR mal
+        puesto que una base sin documentos."""
         with self._tx() as c:
             for d in docs:
                 c.execute(
@@ -366,6 +373,10 @@ class PostgresRepository:
                     "fecha_indexacion=excluded.fecha_indexacion, activo=1",
                     (d["doc_id"], d["name"], d.get("version"), d["n_chunks"],
                      d["indexed_at"]))
+            if docs:
+                ids = [d["doc_id"] for d in docs]
+                c.execute("UPDATE documentos SET activo=0 WHERE activo=1 AND id_documento "
+                          f"NOT IN ({','.join(['%s'] * len(ids))})", ids)
 
     # ---- reportes (HU-04, HU-13, HU-15) --------------------------------------
     def metric_rows(self, start: str | None = None, end: str | None = None) -> list[MetricRow]:

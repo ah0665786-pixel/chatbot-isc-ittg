@@ -155,6 +155,34 @@ def test_sync_documents_upserts(repo):
     assert row["version"] == "v2" and row["n_fragmentos"] == 40
 
 
+def test_sync_documents_desactiva_los_que_ya_no_estan_sin_tocar_metricas(repo):
+    # 2026-11-05: al dejar la base solo con el Manual y el Reglamento, la tabla
+    # seguía con los documentos retirados como activos (el upsert no los quitaba).
+    doc = lambda i, n: {"doc_id": i, "name": n, "version": "", "n_chunks": 3,
+                        "indexed_at": "2026-10-23T00:00:00+00:00"}
+    manual, regl, ss = (doc("manual", "Manual.pdf"), doc("reglamento", "Reglamento.pdf"),
+                        doc("servicio-social", "Lineamiento-Servicio-Social.pdf"))
+    repo.sync_documents([manual, regl, ss])
+    uid = repo.get_or_create_user("tg-1")
+    cid = repo.get_or_create_conversation(uid)
+    hit = Hit(Chunk("servicio-social", "Lineamiento-Servicio-Social.pdf", 2, "x"), 0.9)
+    repo.record_metric(cid, None, RagResult(Outcome.ANSWERED, Reason.NONE, "r", [hit], 0.9,
+                                            "groq", "m", 1, {"total": 1.0}))
+    repo.sync_documents([manual, regl])
+    activo = {r["id_documento"]: r["activo"] for r in
+              repo._conn.execute("SELECT id_documento, activo FROM documentos")}
+    assert activo == {"manual": 1, "reglamento": 1, "servicio-social": 0}
+    # la métrica sigue citando el documento que se usó en su momento
+    row = repo._conn.execute("SELECT doc_id, doc_name FROM metricas_fragmentos").fetchone()
+    assert tuple(row) == ("servicio-social", "Lineamiento-Servicio-Social.pdf")
+    repo.sync_documents([manual, regl, ss])  # se vuelve a indexar: se reactiva
+    assert repo._conn.execute("SELECT activo FROM documentos WHERE id_documento="
+                              "'servicio-social'").fetchone()["activo"] == 1
+    repo.sync_documents([])  # manifiesto vacío (¿KB_DIR mal puesto?): no desactiva nada
+    assert repo._conn.execute("SELECT COUNT(*) n FROM documentos WHERE activo=1"
+                              ).fetchone()["n"] == 3
+
+
 def test_foreign_key_cascade_deletes_children(repo):
     uid = repo.get_or_create_user("tg-1")
     cid = repo.get_or_create_conversation(uid)

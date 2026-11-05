@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.adapters.vectorstore_faiss import FaissStore, IncompatibleIndex
+from app.adapters.vectorstore_faiss import FaissStore, IncompatibleIndex, atomic_write
 from app.config import Settings
 from app.domain import Chunk
 from app.ports import Embedder
@@ -48,6 +48,9 @@ class KnowledgeBase:
                  docs: dict[str, DocRecord] | None = None):
         self.cfg, self.embedder, self.store = cfg, embedder, store
         self.docs: dict[str, DocRecord] = docs or {}
+        # Fecha de manifest.json cuando se leyó o escribió por última vez: si
+        # otro proceso reindexa (la CLI, otro panel), deja de coincidir.
+        self._manifest_mtime = self._disk_mtime()
 
     # ---- apertura / guardado ----------------------------------------------
     @classmethod
@@ -62,10 +65,30 @@ class KnowledgeBase:
         return cls(cfg, embedder, FaissStore(embedder.dim, embedder.name))
 
     def save(self) -> None:
+        """index.faiss, chunks.jsonl y meta.json primero; manifest.json al
+        final, porque es el que vigila KBWatcher para recargar."""
         self.store.save(self.cfg.kb_dir)
-        (self.cfg.kb_dir / "manifest.json").write_text(
-            json.dumps([asdict(r) for r in self.docs.values()], indent=2, ensure_ascii=False),
-            encoding="utf-8")
+        atomic_write(self.cfg.kb_dir / "manifest.json", json.dumps(
+            [asdict(r) for r in self.docs.values()], indent=2, ensure_ascii=False).encode("utf-8"))
+        self._manifest_mtime = self._disk_mtime()
+
+    def _disk_mtime(self) -> float | None:
+        try:
+            return (self.cfg.kb_dir / "manifest.json").stat().st_mtime
+        except FileNotFoundError:
+            return None
+
+    def reload_if_changed(self) -> bool:
+        """Si otro proceso cambió el índice en disco (p. ej. se reindexó con la
+        CLI), vuelve a leer índice y manifiesto. Sin esto el panel seguiría
+        listando los documentos viejos y, al subir uno nuevo, guardaría su copia
+        vieja en memoria encima del índice nuevo. Devuelve True si recargó."""
+        mtime = self._disk_mtime()
+        if mtime is None or mtime == self._manifest_mtime:
+            return False
+        fresh = KnowledgeBase.open(self.cfg, self.embedder)
+        self.store, self.docs, self._manifest_mtime = fresh.store, fresh.docs, mtime
+        return True
 
     # ---- ingesta -----------------------------------------------------------
     def ingest_file(self, path: Path, version: str = "") -> IngestReport:

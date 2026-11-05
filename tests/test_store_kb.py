@@ -70,3 +70,33 @@ def test_ingest_docx(cfg, embedder, tmp_path):
     assert kb.ingest_file(f).status == "added"
     txt = " ".join(c.text for c in kb.store._chunks)
     assert "Constancia de inglés" in txt
+
+
+def test_guardado_sin_archivos_temporales_y_manifiesto_al_final(cfg, embedder, tmp_path):
+    f = tmp_path / "Manual.txt"
+    f.write_text("El servicio social requiere 480 horas. " * 30, encoding="utf-8")
+    kb = KnowledgeBase.open(cfg, embedder)
+    kb.ingest_file(f)
+    kb.save()
+    names = sorted(p.name for p in cfg.kb_dir.iterdir())
+    assert names == ["chunks.jsonl", "index.faiss", "manifest.json", "meta.json"]
+    # KBWatcher recarga cuando cambia manifest.json: debe ser el último en escribirse
+    mt = {p.name: p.stat().st_mtime_ns for p in cfg.kb_dir.iterdir()}
+    assert mt["manifest.json"] >= max(mt.values())
+
+
+def test_recarga_si_otro_proceso_reindexo(cfg, embedder, tmp_path):
+    import os
+    a, b = tmp_path / "Manual.txt", tmp_path / "Lineamiento.txt"
+    a.write_text("El servicio social requiere 480 horas. " * 30, encoding="utf-8")
+    b.write_text("La residencia profesional dura 500 horas. " * 30, encoding="utf-8")
+    panel = KnowledgeBase.open(cfg, embedder)
+    panel.ingest_file(a); panel.ingest_file(b); panel.save()
+    assert panel.reload_if_changed() is False  # nada cambió
+    otro = KnowledgeBase.open(cfg, embedder, rebuild=True)  # p. ej. la CLI
+    otro.ingest_file(a); otro.save()
+    mp = cfg.kb_dir / "manifest.json"
+    st = mp.stat()  # que la fecha cambie aunque el reloj del disco sea grueso
+    os.utime(mp, (st.st_atime + 5, st.st_mtime + 5))
+    assert panel.reload_if_changed() is True
+    assert set(panel.docs) == {"manual"} and len(panel.store) == len(otro.store)
