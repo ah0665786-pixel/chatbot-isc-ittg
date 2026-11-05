@@ -143,11 +143,18 @@ Guía de Residencia se retiraron. Todo se midió sin llamar al modelo (búsqueda
   `ss-03` (pág. 77, 11.4.1.5: no menor de seis meses; el máximo de 2 años solo está en el
   Anexo XXI, pág. 226). Las páginas de los formatos van en `citas_adicionales`, que
   `--verificar` también revisa.
-- **Siguen marcados para validar con la coordinadora** (`estado: respuesta_cambia`):
-  `ss-01` (el Manual dice "el porcentaje de créditos de acuerdo con la normativa vigente",
-  sin el 70%) y `ss-06` (dice "en los tiempos que el departamento determine", sin los
-  20 días hábiles). La hoja de revisión los muestra como "PARA VALIDAR", con lo que decía
-  antes; `--correr` los omite hasta que se decidan.
+- **Confirmado por la coordinadora (2026-11-05):** `ss-01` sigue siendo el 70% de créditos y
+  se cita del glosario del Manual (pág. 183, expediente del programa semestral de Servicio
+  Social), con el 11.4.1.3 (pág. 77) como cita adicional; ya se corre en la evaluación. En
+  `ss-02` y `ss-03` el rango es de 480 a 500 horas: las dos respuestas deben incluir 480 y 500.
+  La fila 39 de `data/retrieval_cases.jsonl` (convalidación) queda con la respuesta del Manual
+  (pág. 54, 7.4.1.4): una sola ocasión, terminar dentro de 12 semestres, sin semestre límite.
+- **Sigue marcado para validar:** `ss-06` (`estado: respuesta_cambia`): el Manual dice "en los
+  tiempos que el departamento determine", sin los 20 días hábiles. La hoja de revisión lo
+  muestra como "PARA VALIDAR", con lo que decía antes, y `--correr` lo omite.
+- **Ojo con ss-01:** con el índice actual el glosario (pág. 183) no llega entre los 5
+  fragmentos de esa pregunta (queda fuera de los primeros 60), así que el bot no tiene el 70%
+  para responder.
 - **Recuperados con la expansión de consulta** (`app/rag/query_expansion.py`): `res-05`,
   `tras-02`, `tras-03`, `conv-01` y `act-01` perdían su fragmento al retirar los
   lineamientos; ahora sus hechos llegan entre los 5 primeros. En total, 35 de 40 casos a

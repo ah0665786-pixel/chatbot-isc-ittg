@@ -97,6 +97,10 @@ NO_CORRER = {"corregir_pagina_manual", "respuesta_cambia", "fuera_de_base"}
 PROPOSAL_FIELDS = ("documento", "pagina", "numeral", "cita", "respuesta_esperada", "hechos")
 
 
+def _casos(n: int) -> str:
+    return f"{n} caso" if n == 1 else f"{n} casos"
+
+
 def estado(case: dict) -> str:
     return case.get("estado", VIGENTE)
 
@@ -545,7 +549,8 @@ def main(argv=None) -> int:
               "están en sus páginas y las respuestas esperadas cumplen sus hechos.")
         marked = [c for c in cases if estado(c) != VIGENTE]
         if marked:
-            print(f"\n{len(marked)} casos marcados (se revisó su propuesta):")
+            print(f"\n{_casos(len(marked))} marcado{'s' if len(marked) != 1 else ''} "
+                  "(se revisó su propuesta):")
             for c in marked:
                 print(f"  {c['id']:8} {estado(c):22} {c['propuesta']['nota']}")
         return 1 if problems else 0
@@ -564,7 +569,8 @@ def main(argv=None) -> int:
             return 2
         skipped = [c["id"] for c in cases if estado(c) in NO_CORRER]
         if skipped:
-            print(f"Se omiten {len(skipped)} casos marcados para corregir: {', '.join(skipped)}")
+            print(f"Se omite{'n' if len(skipped) != 1 else ''} {_casos(len(skipped))} "
+                  f"marcado{'s' if len(skipped) != 1 else ''} para corregir: {', '.join(skipped)}")
         return run([c for c in cases if estado(c) not in NO_CORRER], a.env, a.kb, a.out,
                    a.tope_tokens)
     if a.resumen:

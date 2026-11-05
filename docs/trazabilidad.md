@@ -152,10 +152,10 @@ Respaldo y cómo restaurarlo: `C:\ChatbotSis\chatbot-isc-respaldo6-11-05_solo_
   Manual; la pág. 86 (12.4.1.2 y 12.4.1.3) queda 1.ª o 2.ª en las de duración y única ocasión.
   En el conjunto de evaluación, 35 de 40 casos a responder traen sus hechos en los 5
   fragmentos (29 sin el ajuste). Los 8 a derivar no cambian de similitud.
-- **Queda marcada** la fila 39 (`estado: respuesta_cambia`): el "cuarto semestre" solo estaba
-  en el Lineamiento de Convalidación; el Manual (pág. 54, 7.4.1.4) no pone semestre límite.
-  Se valida con la coordinadora, igual que ss-01 y ss-06 del conjunto de evaluación
-  (ver `docs/eval_exactitud.md`).
+- **Confirmado por la coordinadora (2026-11-05):** fila 39 con la respuesta del Manual (pág. 54,
+  7.4.1.4: una sola ocasión, 12 semestres, sin semestre límite); ya no es falla esperada. En el
+  conjunto de evaluación, ss-01 (70%, glosario pág. 183) y el rango de 480 a 500 horas de ss-02 y
+  ss-03. Solo ss-06 sigue por validar (ver `docs/eval_exactitud.md`).
 - Pruebas: `test_repository.py` y `test_repository_postgres.py`
   (`test_sync_documents_desactiva_los_que_ya_no_estan_sin_tocar_metricas`),
   `test_store_kb.py` (guardado y recarga), `test_admin_service.py`
