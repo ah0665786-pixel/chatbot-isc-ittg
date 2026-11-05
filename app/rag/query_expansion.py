@@ -66,6 +66,18 @@ _SITUACION = re.compile(r"\b(especial|repeticion|adeud\w*|baja|situacion)\b|"
 _CAMBIO_CARRERA = re.compile(r"\b((convalid|revalid)\w*|cambi\w* de (carrera|plan)"
                              r"|otra carrera)")
 _LIMITE_CONVALIDACION = re.compile(r"\b(veces|cuantas|ocasion\w*|semestres?|limite|hasta)\b")
+# Servicio social: "el servicio" a secas también cuenta ("¿desde qué semestre puedo
+# hacer el servicio?"); "servicios escolares" no, porque va en plural.
+_SERVICIO_SOCIAL = re.compile(r"\bservicio( social)?\b")
+# Cuándo o con cuántos créditos se empieza. Se excluyen las de horas, plan de
+# trabajo, entregas, terminar o liberar: ya recibían su fragmento y esta
+# expansión las alejaría de él ("ya empecé el servicio, ¿para cuándo entrego
+# el plan de trabajo?" dice "empecé" y "cuándo").
+_EMPEZAR_SERVICIO = re.compile(
+    r"^(?!.*\b(plan de trabajo|entreg\w*|reporte\w*|horas?|terminar|termino|acabar|acabo"
+    r"|liber\w*|meses|anos)\b)"
+    r".*\b(empe[zc]\w*|inici\w*|comenz\w*|desde|cuando|porcentaje|semestres?|llevo"
+    r"|necesit\w*|requisit\w*|meter)\b")
 
 # Los textos usan el VOCABULARIO del documento, no la respuesta: si el
 # documento cambia, la expansión no debe empujar hacia un dato viejo.
@@ -125,6 +137,20 @@ EXPANSIONS: list[tuple[re.Pattern[str], re.Pattern[str] | None, str]] = [
     (_CAMBIO_CARRERA, _LIMITE_CONVALIDACION,
      "Políticas de operación de la convalidación: cambio de carrera, número de control, "
      "semestre de ubicación del estudiante y semestres reglamentarios."),
+    # 2026-11-05: el 70% de créditos para empezar el servicio social solo está en
+    # el glosario del Manual (pág. 183, "Expediente del programa semestral de
+    # Servicio Social"); el 11.4.1.3 (pág. 77) remite a "la normativa vigente".
+    # Ese fragmento del glosario sigue con otras definiciones ("Formación de
+    # tutores", "Formación integral"), así que quedaba 17.º a 21.º o fuera de los
+    # 60 primeros. Con el texto de la definición, más "formación integral" (el
+    # resto del mismo fragmento), queda entre los 5 primeros sin desplazar a la
+    # pág. 77. Medido con y sin la última frase: sin ella quedaba 6.º a 17.º.
+    (_SERVICIO_SOCIAL, _EMPEZAR_SERVICIO,
+     "Expediente del programa semestral de Servicio Social. Archivo con documentos que "
+     "hacen constar la planeación y ejecución del programa de Servicio Social, que se "
+     "integra con la convocatoria publicada, la relación de estudiantes con el porcentaje "
+     "de créditos aprobados y el acta de calificaciones semestral de los estudiantes que "
+     "concluyen el Servicio Social. Formación integral del estudiante."),
 ]
 
 

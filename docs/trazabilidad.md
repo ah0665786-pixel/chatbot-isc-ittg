@@ -156,6 +156,11 @@ Respaldo y cómo restaurarlo: `C:\ChatbotSis\chatbot-isc-respaldo6-11-05_solo_
   7.4.1.4: una sola ocasión, 12 semestres, sin semestre límite); ya no es falla esperada. En el
   conjunto de evaluación, ss-01 (70%, glosario pág. 183) y el rango de 480 a 500 horas de ss-02 y
   ss-03. Solo ss-06 sigue por validar (ver `docs/eval_exactitud.md`).
+- **Servicio social, 70% de créditos (2026-11-05):** regla nueva en la expansión de consulta para
+  las preguntas de cuándo o con cuántos créditos se empieza. El glosario (pág. 183) pasa del lugar
+  17.º-21.º (o fuera de los 60) al 2.º-5.º y la pág. 77 sigue llegando; las de horas, 6 meses,
+  2 años y plan de trabajo no usan la regla. Recuperación 60/60 igual; evaluación 34 → 35 de 40.
+  Prueba: `test_retrieval_real.py::test_el_70_por_ciento_del_servicio_social_llega_al_llm`.
 - Pruebas: `test_repository.py` y `test_repository_postgres.py`
   (`test_sync_documents_desactiva_los_que_ya_no_estan_sin_tocar_metricas`),
   `test_store_kb.py` (guardado y recarga), `test_admin_service.py`

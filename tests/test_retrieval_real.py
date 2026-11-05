@@ -114,3 +114,20 @@ def test_la_propuesta_con_la_pagina_del_manual_recupera_el_fragmento(pipeline, c
     hits = pipeline.retrieve(fixed["q"])
     found = [h for h in hits if _relevant(h, fixed) and h.score >= pipeline.cfg.sim_threshold]
     assert found, [f"{h.score:.3f} {h.chunk.doc_name} {h.chunk.section}" for h in hits]
+
+
+@pytest.mark.parametrize("q", [
+    "¿Cuándo puedo empezar mi servicio social?",
+    "¿Qué porcentaje de créditos necesito para hacer el servicio social?",
+    "cuantos creditos necesito para el servicio social",
+    "desde q semestre o con cuantos creditos puedo empezar el servicio?",
+    "cuántos créditos llevo que tener para el servicio",
+    "desde qué semestre puedo hacer el servicio",
+])
+def test_el_70_por_ciento_del_servicio_social_llega_al_llm(pipeline, q):
+    """El 70% de créditos (confirmado por la coordinadora, 2026-11-05) solo está en
+    el glosario del Manual (pág. 183); el 11.4.1.3 (pág. 77) también debe llegar."""
+    hits = [h for h in pipeline.retrieve(q) if h.score >= pipeline.cfg.sim_threshold]
+    secciones = [h.chunk.section for h in hits]
+    assert "pág. 183" in secciones and "pág. 77" in secciones, secciones
+    assert any("70%" in h.chunk.text for h in hits)

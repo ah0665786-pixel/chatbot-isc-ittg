@@ -152,9 +152,10 @@ Guía de Residencia se retiraron. Todo se midió sin llamar al modelo (búsqueda
 - **Sigue marcado para validar:** `ss-06` (`estado: respuesta_cambia`): el Manual dice "en los
   tiempos que el departamento determine", sin los 20 días hábiles. La hoja de revisión lo
   muestra como "PARA VALIDAR", con lo que decía antes, y `--correr` lo omite.
-- **Ojo con ss-01:** con el índice actual el glosario (pág. 183) no llega entre los 5
-  fragmentos de esa pregunta (queda fuera de los primeros 60), así que el bot no tiene el 70%
-  para responder.
+- **ss-01 y la expansión de consulta:** el glosario (pág. 183) quedaba 17.º a 21.º, o fuera de
+  los primeros 60, en las preguntas de cuándo o con cuántos créditos se empieza el servicio
+  social. Con la regla de servicio social de `app/rag/query_expansion.py` queda 2.º a 5.º, sin
+  desplazar a la pág. 77 (11.4.1.3). Ahora 35 de 40 casos a responder traen sus hechos.
 - **Recuperados con la expansión de consulta** (`app/rag/query_expansion.py`): `res-05`,
   `tras-02`, `tras-03`, `conv-01` y `act-01` perdían su fragmento al retirar los
   lineamientos; ahora sus hechos llegan entre los 5 primeros. En total, 35 de 40 casos a

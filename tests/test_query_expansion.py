@@ -131,3 +131,33 @@ def test_una_regla_por_tema_y_definicion_de_convalidacion_primero():
     e = expand_query("¿Cuántas horas dura la residencia si la repruebo?")
     assert "única ocasión" in e and "tiempo mínimo" not in e  # solo la primera que aplica
     assert "Convalidación de estudios: definición" in expand_query("¿Qué es la convalidación?")
+
+
+SERVICIO_EMPEZAR = [
+    "¿Cuándo puedo empezar mi servicio social?",
+    "¿Qué porcentaje de créditos necesito para hacer el servicio social?",
+    "cuantos creditos necesito para el servicio social",
+    "desde q semestre o con cuantos creditos puedo empezar el servicio?",
+    "cuántos créditos llevo que tener para el servicio",
+    "desde qué semestre puedo hacer el servicio",
+]
+
+
+@pytest.mark.parametrize("q", SERVICIO_EMPEZAR)
+def test_empezar_el_servicio_social_usa_el_glosario(q):
+    assert "Expediente del programa semestral de Servicio Social" in expand_query(q)
+
+
+@pytest.mark.parametrize("q", [
+    "cuantas horas son de servicio social",
+    "el servicio lo puedo acabar en 3 meses si le echo ganas?",
+    "cuantos creditos vale el servicio social",
+    "ya empece el servicio, para cuando tengo q entregar el plan de trabajo",
+    "¿En cuánto tiempo tengo que terminar el servicio social?",
+    "¿En qué lugares puedo hacer mi servicio social?",
+    "¿Puedo hacer residencias si no he liberado el servicio social?",
+    "¿Dónde quedan los servicios escolares?",
+])
+def test_otras_de_servicio_social_no_usan_el_glosario(q):
+    # ya recibían su fragmento (horas, 6 meses, 2 años, plan de trabajo, valor)
+    assert "Expediente del programa semestral" not in expand_query(q)
