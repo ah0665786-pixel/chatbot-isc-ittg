@@ -182,8 +182,7 @@ da el 70%: el glosario describe el expediente del programa, no un requisito, y e
 toma como respuesta. **Pendiente:** que la máquina de desarrollo use los mismos prefijos que el
 bot, y medir siempre dentro del contenedor.
 
-🟡 **2026-11-05 (rama `extracto-servicio-social`, sin integrar): extracto verificado del servicio
-social.** A pedido de la asesora, `data/docs/Extracto_Manual_Lineamientos_Servicio_Social.docx`
+✅ **2026-11-05: extracto verificado del servicio social.** A pedido de la asesora, `data/docs/Extracto_Manual_Lineamientos_Servicio_Social.docx`
 dice de forma directa el 70% de créditos para iniciar (glosario del Manual, pág. 183) y el rango de
 480 a 500 horas (11.4.1.4 y Anexos XXI y XXVI), con su fuente en el Manual. Se indexó como tercer
 documento dentro del contenedor del bot (496 fragmentos). Medido en el contenedor: el extracto llega
@@ -191,6 +190,10 @@ documento dentro del contenedor del bot (496 fragmentos). Medido en el contenedo
 35/40 y pág. 86 de residencia sin cambio. Con el modelo real (8,408 tokens): "¿con cuántos créditos
 puedo empezar el servicio social?" respondió el 70% citando el extracto, pero sin los 10 créditos de
 la pág. 77; "cuantos creditos ocupo pa meter el servicio social?" dio las dos cosas (págs. 77 y 183).
+Con la frase nueva del extracto ("se expresa en porcentaje de créditos aprobados y no en un semestre
+determinado"), "desde q semestre ya puedo hacer mi servicio" pasó de derivar a contestar el 70% y
+"¿con cuántos créditos puedo empezar el servicio social?" contestó el 70% al primer intento (4,073
+tokens). Recuperación 60/60, evaluación 35/40 y pág. 86 sin cambio.
 
 ## 2. Numeración de HU: código (Lista A) → protocolo (Lista B)
 
