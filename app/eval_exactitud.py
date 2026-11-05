@@ -176,11 +176,18 @@ def verify(cases: list[dict], docs_dir: Path | None = None,
         if not 1 <= n <= len(pages):
             problems.append(f"{cid}: la página {n} no existe en {c['documento']}")
             continue
-        where = _squash(" ".join(pages[n - 1:n + 1]))
-        for frag in re.split(r"\[\.\.\.\]|\[…\]", c["cita"]):
-            if len(_squash(frag)) >= 12 and _squash(frag) not in where:
-                problems.append(f"{cid}: la cita no aparece en {c['documento']} pág. {n}: "
-                                f"\"{frag.strip()[:70]}...\"")
+        # "citas_adicionales": otras páginas del mismo documento que sostienen la
+        # respuesta (p. ej. los formatos del Manual con las 480 horas del servicio social).
+        for n, cita in [(c["pagina"], c["cita"])] + [
+                (x["pagina"], x["cita"]) for x in c.get("citas_adicionales", [])]:
+            if not 1 <= n <= len(pages):
+                problems.append(f"{cid}: la página {n} no existe en {c['documento']}")
+                continue
+            where = _squash(" ".join(pages[n - 1:n + 1]))
+            for frag in re.split(r"\[\.\.\.\]|\[…\]", cita):
+                if len(_squash(frag)) >= 12 and _squash(frag) not in where:
+                    problems.append(f"{cid}: la cita no aparece en {c['documento']} pág. {n}: "
+                                    f"\"{frag.strip()[:70]}...\"")
     return problems
 
 
@@ -433,18 +440,30 @@ def _doc_name(doc: str) -> str:
 
 
 def review_rows(cases: list[dict]) -> list[list[str]]:
+    """Una fila por caso. Los marcados para validar (la respuesta esperada cambia
+    porque el Manual no dice lo mismo que el lineamiento retirado) muestran la
+    propuesta con el Manual y lo que decía antes, para que la coordinadora decida."""
     rows = []
-    for n, c in enumerate(cases, 1):
+    for n, case in enumerate(cases, 1):
+        c = with_proposal(case)
         if c["esperado"] == DERIVE:
             expected = f"DEBE DERIVAR. {c['respuesta_esperada']} ({c['nota']})"
             source = "—"
         else:
             expected = c["respuesta_esperada"]
-            if c.get("nota"):
+            if estado(case) != VIGENTE:
+                expected = (f"PARA VALIDAR ({ESTADOS[estado(case)]}). {expected}\n"
+                            f"Antes decía: {case['respuesta_esperada']}\n"
+                            f"Nota: {case['propuesta']['nota']}")
+            elif c.get("nota"):
                 expected += f"\nNota: {c['nota']}"
-            source = f"{_doc_name(c['documento'])}, pág. {c['pagina']} (numeral {c['numeral']})"
+            pages = [str(c["pagina"])] + [str(x["pagina"]) for x in c.get("citas_adicionales", [])]
+            source = (f"{_doc_name(c['documento'])}, pág. {', '.join(pages)} "
+                      f"(numeral {c['numeral']})")
+        cita = "\n".join([c.get("cita", "")] + [f"(pág. {x['pagina']}) {x['cita']}"
+                                                 for x in c.get("citas_adicionales", [])])
         rows.append([str(n), TOPIC_NAMES.get(c["tema"], c["tema"]), c["q"], expected,
-                     c.get("cita", ""), source])
+                     cita, source])
     return rows
 
 

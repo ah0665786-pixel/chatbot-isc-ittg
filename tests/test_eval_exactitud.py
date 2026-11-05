@@ -77,13 +77,14 @@ def test_base_solo_manual_y_reglamento_casos_marcados_con_propuesta():
             assert c["propuesta"]["nota"], c["id"]
             assert ev.with_proposal(c)["documento"] in BASE, c["id"]
     citaban_retirado = {c["id"] for c in CASES if c.get("documento") and c["documento"] not in BASE}
-    assert citaban_retirado == {"ss-01", "ss-02", "ss-03", "ss-06"}
-    assert all(ev.estado(c) != ev.VIGENTE for c in CASES if c["id"] in citaban_retirado)
+    assert citaban_retirado == {"ss-01", "ss-06"}  # ss-02 y ss-03 ya citan el Manual
+    assert {c["id"] for c in CASES if ev.estado(c) != ev.VIGENTE} == citaban_retirado
+    assert all(ev.estado(c) == "respuesta_cambia" for c in CASES if c["id"] in citaban_retirado)
     assert ev.verify(CASES, kb_docs=BASE) == []
 
 
 def test_verify_detecta_documento_retirado_sin_marcar_y_revisa_la_propuesta():
-    ss = next(c for c in CASES if c["id"] == "ss-02")
+    ss = next(c for c in CASES if c["id"] == "ss-06")
     sin_marca = {k: v for k, v in ss.items() if k not in ("estado", "propuesta")}
     assert any("no está en la base de conocimiento" in p
                for p in ev.verify([sin_marca], kb_docs=BASE))
@@ -110,9 +111,22 @@ def test_correr_omite_los_marcados_para_corregir(monkeypatch, capsys):
     monkeypatch.setattr(ev, "run", lambda cases, *a: seen.setdefault("ids", [c["id"] for c in cases]) and 0)
     assert ev.main(["--correr", "--si-gastar", "--out", "x.jsonl"]) == 0
     omitted = {c["id"] for c in CASES if ev.estado(c) in ev.NO_CORRER}
-    assert omitted == {"ss-01", "ss-02", "ss-03", "ss-06"}
+    assert omitted == {"ss-01", "ss-06"}
     assert omitted.isdisjoint(seen["ids"]) and len(seen["ids"]) == len(CASES) - len(omitted)
-    assert "Se omiten 4 casos" in capsys.readouterr().out
+    assert "Se omiten 2 casos" in capsys.readouterr().out
+
+
+def test_citas_adicionales_se_verifican_y_salen_en_la_hoja():
+    ss = next(c for c in CASES if c["id"] == "ss-02")
+    assert [x["pagina"] for x in ss["citas_adicionales"]] == [226, 231]
+    mala = json.loads(json.dumps(ss))
+    mala["citas_adicionales"][1]["cita"] = "cubriendo un mínimo total de 999 horas"
+    assert any("pág. 231" in p and "no aparece" in p for p in ev.verify([mala], kb_docs=BASE))
+    row = ev.review_rows([ss])[0]
+    assert "(pág. 226)" in row[4] and "(pág. 231)" in row[4] and "pág. 77, 226, 231" in row[5]
+    marcado = ev.review_rows([next(c for c in CASES if c["id"] == "ss-06")])[0]
+    assert marcado[3].startswith("PARA VALIDAR") and "Antes decía" in marcado[3]
+    assert "pág. 80" in marcado[5]
 
 
 # ---- clasificación --------------------------------------------------------------------------
