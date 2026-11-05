@@ -141,17 +141,26 @@ Respaldo y cómo restaurarlo: `C:\ChatbotSis\chatbot-isc-respaldo6-11-05_solo_
   `manifest.json`, antes de listar y antes de subir.
 - **Guardado atómico.** Cada archivo del índice se escribe aparte y se cambia de golpe
   (`os.replace`), con `manifest.json` al final, que es el que vigila `KBWatcher`.
-- **Impacto, sin llamar al modelo.** En `data/retrieval_cases.jsonl`, 8 de 60 preguntas
-  pierden su fragmento (residencia 4, actividades complementarias 3, convalidación 1);
-  quedan marcadas con `estado` y `propuesta` y corren como falla esperada. Otras 11 siguen
-  pasando, ahora con la página equivalente del Manual. En el conjunto de evaluación (rama
-  `eval-exactitud`), 4 casos citaban el Lineamiento de Servicio Social y 9 quedan marcados
+- **Impacto, sin llamar al modelo.** Al quitar los lineamientos, 8 de 60 preguntas de
+  `data/retrieval_cases.jsonl` perdían su fragmento (residencia 4, actividades
+  complementarias 3, convalidación 1) y 5 casos del conjunto de evaluación perdían sus hechos.
+- **Expansión de consulta** (`app/rag/query_expansion.py`), con el vocabulario del Manual:
+  residencia (duración y valor, requisitos, cierre de la empresa, "resi"), actividades
+  complementarias (créditos de una sola actividad, acreditación), traslados (cuántas veces,
+  situación académica, trámite) y convalidación (cambio de carrera, semestre). Con ella, 60/60
+  preguntas de recuperación tienen su fragmento en el top 5 con las preguntas apuntando al
+  Manual; la pág. 86 (12.4.1.2 y 12.4.1.3) queda 1.ª o 2.ª en las de duración y única ocasión.
+  En el conjunto de evaluación, 35 de 40 casos a responder traen sus hechos en los 5
+  fragmentos (29 sin el ajuste). Los 8 a derivar no cambian de similitud.
+- **Queda marcada** la fila 39 (`estado: respuesta_cambia`): el "cuarto semestre" solo estaba
+  en el Lineamiento de Convalidación; el Manual (pág. 54, 7.4.1.4) no pone semestre límite.
+  Se valida con la coordinadora, igual que ss-01 y ss-06 del conjunto de evaluación
   (ver `docs/eval_exactitud.md`).
 - Pruebas: `test_repository.py` y `test_repository_postgres.py`
   (`test_sync_documents_desactiva_los_que_ya_no_estan_sin_tocar_metricas`),
   `test_store_kb.py` (guardado y recarga), `test_admin_service.py`
   (`test_panel_ve_la_reindexacion_hecha_desde_la_cli_y_no_la_revierte`) y
-  `test_retrieval_real.py` (estados y propuestas).
+  `test_retrieval_real.py` (estados y propuestas) y `test_query_expansion.py`.
 
 ## 2. Numeración de HU: código (Lista A) → protocolo (Lista B)
 

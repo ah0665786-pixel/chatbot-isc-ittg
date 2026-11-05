@@ -18,7 +18,6 @@ def test_preguntas_de_titulacion_se_expanden(q):
 
 
 @pytest.mark.parametrize("q", [
-    "¿Cuántas horas dura la residencia profesional?",
     "¿Qué requisitos necesito para una baja temporal?",
     "¿Cuál es la capital de Francia?",
 ])
@@ -68,9 +67,9 @@ def test_repetir_la_residencia_no_es_repeticion_de_materias():
 
 def test_definicion_de_convalidacion():
     assert "definición y caracterización" in expand_query("¿Qué es la convalidación de estudios?")
-    # Las demás preguntas de convalidación ya salían bien sin expansión
-    assert expand_query("¿Hasta qué semestre puedo pedir la convalidación?") == \
-        "¿Hasta qué semestre puedo pedir la convalidación?"
+    # Con los lineamientos sueltos las demás salían bien sin expansión; con solo el
+    # Manual (2026-11-05) la del semestre quedaba 7.ª y se expande (ver la prueba de abajo).
+    assert "definición" not in expand_query("¿Hasta qué semestre puedo pedir la convalidación?")
 
 
 @pytest.mark.parametrize("q,expande", [
@@ -102,3 +101,33 @@ def test_repetir_la_residencia_usa_el_vocabulario_de_unica_ocasion(q):
                                "¿Cuántas horas dura la residencia?"])
 def test_otras_preguntas_de_residencia_no_usan_la_de_unica_ocasion(q):
     assert "única ocasión" not in expand_query(q)
+
+
+# ---- 2026-11-05: base solo con el Manual (sin la Guía ni los lineamientos sueltos) ----
+@pytest.mark.parametrize("q, texto", [
+    ("¿Cuántas horas debe durar la residencia profesional?", "tiempo mínimo y tiempo máximo"),
+    ("¿Cuántos créditos vale la residencia profesional?", "valor curricular en créditos"),
+    ("¿Qué porcentaje de créditos necesito para hacer residencia?", "Requisitos del candidato"),
+    ("¿Puedo hacer residencias si no he liberado el servicio social?", "Requisitos del candidato"),
+    ("q necesito para poder hacer residencias?", "Requisitos del candidato"),
+    ("la empresa donde hacia mi residencia cerro, que hago?", "reasignación de otro proyecto"),
+    ("si me va mal en la resi la puedo volver a hacer?", "única ocasión"),
+    ("¿Cuántos créditos puede valer como máximo una sola actividad complementaria?",
+     "cada una de las actividades complementarias"),
+    ("cuantos creditos complementarios ocupo y hasta cuando", "valor curricular, créditos"),
+    ("¿Cómo se acredita una actividad complementaria?", "constancia de competencia"),
+    ("cuantas veces me puedo cambiar de tecnologico", "número de traslados"),
+    ("tengo materias en especial, aun asi me puedo trasladar?", "situación académica"),
+    ("me quiero cambiar a otro tec, q tramite hago", "solicitud de traslado"),
+    ("me quiero cambiar de carrera a industrial, cuantas veces se puede?", "semestre de ubicación"),
+    ("¿Hasta qué semestre puedo pedir la convalidación?", "semestre de ubicación"),
+])
+def test_expansion_con_el_vocabulario_del_manual(q, texto):
+    expanded = expand_query(q)
+    assert expanded.startswith(q) and texto in expanded
+
+
+def test_una_regla_por_tema_y_definicion_de_convalidacion_primero():
+    e = expand_query("¿Cuántas horas dura la residencia si la repruebo?")
+    assert "única ocasión" in e and "tiempo mínimo" not in e  # solo la primera que aplica
+    assert "Convalidación de estudios: definición" in expand_query("¿Qué es la convalidación?")

@@ -40,14 +40,32 @@ _REPETICION = re.compile(rf"\b(materia|asignatura)s?\b.*\b{_REPROBAR}"
 # "¿Puedo repetir la residencia si la repruebo?": la Guía responde con "se cursa
 # por una única ocasión" (sin "repetir" ni "reprobar") y el modelo dijo NO_INFO
 # con ese fragmento 4.º, tanto con main como con la rama (30-oct).
-_RESIDENCIA = re.compile(r"\bresidencia")
+# "resi": así le dicen los estudiantes ("si me va mal en la resi...").
+_RESIDENCIA = re.compile(r"\bresi(dencias?|dente)?\b")
 _REPETIR_RESIDENCIA = re.compile(rf"\b{_REPROBAR}|\b(otra vez|de nuevo|segunda vez|volver a"
-                                 r"|no acredit\w*|segunda oportunidad)\b")
-_ACTIVIDADES = re.compile(r"\bactividad(es)? complementaria")
+                                 r"|no acredit\w*|segunda oportunidad|va mal)\b")
+# 2026-11-05, base solo con el Manual: sin la Guía ni el Lineamiento de 2015,
+# los numerales del Manual quedaban 5.º a 12.º (págs. 86, 89 y 93).
+_CIERRE_EMPRESA = re.compile(r"\b(cerr\w*|cierre|quebr\w*|bancarrota|huelga\w*|cancel\w*)\b")
+_DURACION = re.compile(r"\b(dura\w*|duracion|horas?|meses|tiempo|vale|valor)\b")
+_REQUISITOS_RESIDENCIA = re.compile(r"\b(requisit\w*|necesit\w*|ocup\w*|piden?|porcentaje"
+                                    r"|creditos?|servicio social|liber\w*|entrar|empezar|inici\w*"
+                                    r"|hacer)\b")
+_ACTIVIDADES = re.compile(r"\b(actividad(es)? complementaria|creditos? complementario)")
 # Solo preguntas de créditos/horas/plazos: con "¿Qué son?", "¿cómo se acredita?"
 # o la del inglés, la expansión las empeoraba (de 2.º a 8.º); sin ella ya salen bien.
 _CREDITOS_PLAZO = re.compile(r"\b(credito\w*|maximo|valor|vale|horas?|semestres?|plazo"
-                             r"|cuando|hasta|tiempo|limite)\b")
+                             r"|cuando|hasta|tiempo|limite|ocupo)\b")
+_UNA_ACTIVIDAD = re.compile(r"\b(una sola|cada una|por actividad)\b")
+_ACREDITAR = re.compile(r"\b(acredit\w*|cumpl\w*|liber\w*|constancia\w*|evalu\w*)\b")
+_TRASLADO = re.compile(r"\b(traslad\w*|cambi\w* (a|de) (otro )?(tec|tecnologico|instituto"
+                       r"|escuela|plantel|campus))\b")
+_VECES = re.compile(r"\b(veces|cuantas|ocasion\w*)\b")
+_SITUACION = re.compile(r"\b(especial|repeticion|adeud\w*|baja|situacion)\b|"
+                        + _REPROBAR)
+_CAMBIO_CARRERA = re.compile(r"\b((convalid|revalid)\w*|cambi\w* de (carrera|plan)"
+                             r"|otra carrera)")
+_LIMITE_CONVALIDACION = re.compile(r"\b(veces|cuantas|ocasion\w*|semestres?|limite|hasta)\b")
 
 # Los textos usan el VOCABULARIO del documento, no la respuesta: si el
 # documento cambia, la expansión no debe empujar hacia un dato viejo.
@@ -74,9 +92,39 @@ EXPANSIONS: list[tuple[re.Pattern[str], re.Pattern[str] | None, str]] = [
     (_RESIDENCIA, _REPETIR_RESIDENCIA,
      "Generalidades de la Residencia Profesional: se cursa por una única ocasión; por "
      "causas justificadas fuera del alcance del residente, segunda asignación de proyecto."),
+    (_RESIDENCIA, _CIERRE_EMPRESA,
+     "Residencia profesional, por circunstancias especiales no imputables al residente "
+     "(huelgas, bancarrota, cierre de empresa, organismo o dependencia): cancelación y "
+     "reasignación de otro proyecto de residencia profesional."),
+    (_RESIDENCIA, _DURACION,
+     "Generalidades de la Residencia Profesional: valor curricular en créditos y "
+     "duración, periodo de meses como tiempo mínimo y tiempo máximo, horas a acumular."),
+    (_RESIDENCIA, _REQUISITOS_RESIDENCIA,
+     "Requisitos del candidato para realizar la residencia profesional: acreditación del "
+     "servicio social, de todas las actividades complementarias, créditos aprobados de su "
+     "plan de estudios, ninguna asignatura en curso especial."),
+    (_ACTIVIDADES, _UNA_ACTIVIDAD,
+     "Políticas de operación de las actividades complementarias: créditos asignados para "
+     "cada una de las actividades complementarias autorizadas y valor curricular del conjunto."),
     (_ACTIVIDADES, _CREDITOS_PLAZO,
      "Políticas de operación de las actividades complementarias: valor curricular, "
      "créditos, horas efectivas y semestres."),
+    (_ACTIVIDADES, _ACREDITAR,
+     "Cumplimiento de las actividades complementarias: evidencias, constancia de "
+     "competencia de actividad complementaria emitida por el departamento responsable."),
+    (_TRASLADO, _VECES,
+     "Generalidades del traslado de estudiantes: número de traslados entre las "
+     "instituciones adscritas al TecNM y periodo reglamentario de semestres."),
+    (_TRASLADO, _SITUACION,
+     "Características del traslado de estudiantes: el traslado procede independientemente "
+     "de la situación académica, asignaturas en curso de repetición y/o especial."),
+    (_TRASLADO, None,
+     "Del traslado de estudiantes: solicitud de traslado y kárdex o constancia de "
+     "calificaciones ante la División de Estudios Profesionales del tecnológico de origen, "
+     "previo al periodo de reinscripción del instituto receptor."),
+    (_CAMBIO_CARRERA, _LIMITE_CONVALIDACION,
+     "Políticas de operación de la convalidación: cambio de carrera, número de control, "
+     "semestre de ubicación del estudiante y semestres reglamentarios."),
 ]
 
 
