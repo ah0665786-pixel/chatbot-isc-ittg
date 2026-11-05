@@ -319,7 +319,7 @@ Respaldo y cómo restaurarlo: `C:\ChatbotSis\chatbot-isc-respaldo6-11-05_solo_
 | `data/redteam_2026-10-22_2346.json` | RNF-SE-04: 20/20 con LLM real, 0 inconclusos |
 | `data/redteam_2026-10-22_2328.json` | Corrida previa (19/20, falla B8) |
 | `data/loadtest_2026-10-22_2332.json` | RNF-EF-01/02: 20 usuarios, base completa, p95 1.78 s, 0 errores (LLM simulado) |
-| `data/retrieval_cases.jsonl` + `tests/test_retrieval_real.py` | RF-I-03: 54/54 preguntas con el fragmento correcto en el top 5 (con 16 documentos); desde el 2026-11-05, con el Manual y el Reglamento, 52/60 y 8 marcadas con `estado`; con `tests/test_topics.py`, 62/62 temas bien clasificados (N11) |
+| `data/retrieval_cases.jsonl` + `tests/test_retrieval_real.py` | RF-I-03: 54/54 preguntas con el fragmento correcto en el top 5; con `tests/test_topics.py`, 62/62 temas bien clasificados (N11) |
 | `docs/capacidad-y-costos.md` | RNF-EF-02 con LLM real y límites del plan gratuito de Groq |
 | Tabla `metricas` (base real) | RNF-EF-01: 17 consultas, prom. 0.99 s, p95 2.00 s (calculado por el panel, 2026-10-26) |
 | Suite de pruebas | 415 aprobadas, 15 omitidas sin PostgreSQL (`test_repository_postgres.py` 15/15 en Docker con PostgreSQL) |
