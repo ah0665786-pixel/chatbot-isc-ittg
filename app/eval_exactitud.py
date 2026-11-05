@@ -453,7 +453,7 @@ TOPIC_NAMES = {"plan_estudios": "Plan de estudios", "residencia": "Residencia pr
 
 
 def _doc_name(doc: str) -> str:
-    return " ".join(re.sub(r"[_\-]+", " ", re.sub(r"\.pdf$", "", doc)).split())
+    return " ".join(re.sub(r"[_\-]+", " ", re.sub(r"\.(pdf|docx|txt|md)$", "", doc)).split())
 
 
 def review_rows(cases: list[dict]) -> list[list[str]]:
