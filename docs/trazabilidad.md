@@ -167,6 +167,21 @@ Respaldo y cómo restaurarlo: `C:\ChatbotSis\chatbot-isc-respaldo6-11-05_solo_
   (`test_panel_ve_la_reindexacion_hecha_desde_la_cli_y_no_la_revierte`) y
   `test_retrieval_real.py` (estados y propuestas) y `test_query_expansion.py`.
 
+✅ **2026-11-05: versiones fijas en la imagen y reindexación dentro del contenedor.** En Telegram,
+"¿con cuántos créditos puedo empezar el servicio social?" no recibió el glosario (pág. 183): en el
+bot quedaba 7.º y en la máquina de desarrollo 4.º. Dos causas: (1) el `Dockerfile` instalaba
+`requirements.txt` (solo mínimos) y la imagen traía sentence-transformers 6.2, torch 2.15 y
+transformers 5.22, contra 6.1, 2.14 y 5.17 de `requirements.lock`; (2) el índice se había armado
+en la máquina de desarrollo, con el prefijo `'passage: '`, y el bot pregunta con `'query:'` sin
+espacio, porque Docker recorta el espacio final de `.env`. **Corrección:** la imagen instala torch
+2.14.0 CPU y `requirements.txt` con `-c requirements.lock`, y el índice se volvió a armar dentro
+del contenedor del bot (2 documentos, 495 fragmentos). **Medido en el contenedor:** el glosario
+pasó de 3.º-7.º a 2.º-4.º en las 7 preguntas de servicio social; recuperación 60/60 y evaluación
+35/40 sin cambio; pág. 86 de residencia 1.º-3.º. Con el modelo real (8,137 tokens) el bot aún no
+da el 70%: el glosario describe el expediente del programa, no un requisito, y el modelo no lo
+toma como respuesta. **Pendiente:** que la máquina de desarrollo use los mismos prefijos que el
+bot, y medir siempre dentro del contenedor.
+
 ## 2. Numeración de HU: código (Lista A) → protocolo (Lista B)
 
 | Cita en el código | Dónde | Corresponde en la Lista B |
