@@ -406,16 +406,27 @@ SS_VALOR = ("11.4.1.3 Los estudiantes pueden prestar su Servicio Social una vez 
             "cumplir con los 10 créditos en un periodo no menor de seis meses.")
 
 
-def test_instrucciones_piden_presentar_los_creditos_como_valor_y_no_como_requisito():
+def test_instrucciones_piden_incluir_los_creditos_como_valor_y_no_como_requisito():
+    # 5-nov, 19:01: con "nunca como algo que el estudiante deba tener" el modelo dejó
+    # fuera los 10 créditos, las horas y los seis meses. La regla pide la oración del
+    # Manual tal cual, aparte, sin dejar fuera los demás casos (otra institución).
     from app.rag.pipeline import SYSTEM_PROMPT
-    assert "preséntalo como su valor" in SYSTEM_PROMPT
-    assert '"contar con" o "tener"' in SYSTEM_PROMPT
+    prompt = " ".join(SYSTEM_PROMPT.split())
+    assert "copia esa oración del documento tal cual, sin parafrasear, como una oración aparte" in prompt
+    assert ('"El Servicio Social tiene un valor de 10 créditos en los planes de estudio, donde un '
+            'crédito equivale a 50 horas."') in prompt
+    assert '("cumplir con...", "contar con...", "tener...")' in prompt
+    assert "incluye también todos los demás requisitos y casos del CONTEXTO" in prompt
 
 
-def test_redaccion_del_valor_en_creditos_pasa_la_validacion(kb, cfg):
+@pytest.mark.parametrize("answer", [
+    "El servicio social tiene un valor de 10 créditos en los planes de estudio, donde un crédito "
+    "equivale a 50 horas. (Manual de Lineamientos, pág. 77)",
+    "El servicio social vale 10 créditos; un crédito equivale a 50 horas. "
+    "(Manual de Lineamientos, pág. 77)",
+])
+def test_redaccion_del_valor_en_creditos_pasa_la_validacion(kb, cfg, answer):
     p = pipe(kb, cfg, ScriptedLLM(GOOD))
     hit = Hit(Chunk("manual", "Manual_de_Lineamientos_TecNM.pdf", 140, SS_VALOR, "pág. 77"), 0.9)
-    answer = ("El servicio social vale 10 créditos; un crédito equivale a 50 horas. "
-              "(Manual de Lineamientos, pág. 77)")
     ok, why = p.validate(answer, [hit], "¿qué requisitos necesito para hacer el servicio social?")
     assert ok, why

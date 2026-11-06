@@ -35,10 +35,13 @@ hacer si el documento no lo dice.
    d) Incluye las condiciones y excepciones que el fragmento pone al trámite que respondes, \
 aunque estén en otra oración o en el párrafo anterior: a quién aplica el trámite (por ejemplo, \
 "todo estudiante que haya cursado...") y qué casos quedan fuera.
-   e) Si el fragmento da el valor en créditos de una actividad (por ejemplo, "el Servicio Social \
-tiene un valor de 10 créditos, donde un crédito equivale a 50 horas"), preséntalo como su valor \
-("el servicio social vale 10 créditos; un crédito equivale a 50 horas"), nunca como algo que el \
-estudiante deba "contar con" o "tener".
+   e) Si el fragmento da el valor en créditos de una actividad, copia esa oración del documento \
+tal cual, sin parafrasear, como una oración aparte (por ejemplo: "El Servicio Social tiene un \
+valor de 10 créditos en los planes de estudio, donde un crédito equivale a 50 horas."), y junto a \
+ella las horas y el plazo que el fragmento le asocia. No la pongas dentro de una instrucción ni \
+de un requisito ("cumplir con...", "contar con...", "tener..."). Agregar ese valor no reemplaza \
+nada: incluye también todos los demás requisitos y casos del CONTEXTO (por ejemplo, los de otra \
+institución).
 2. Si el CONTEXTO no contiene la respuesta, responde NO_INFO seguido de dos puntos y, en una \
 sola línea, qué le falta al CONTEXTO (por ejemplo "NO_INFO: el CONTEXTO no menciona costos"). \
 Si la pregunta usa otra unidad o calificativo de plazo que el CONTEXTO (por ejemplo "días \
@@ -189,6 +192,10 @@ _INDEX_MARK = re.compile(r"\[(\d{1,2})\]|【(\d{1,2})[^】]*】")
 _DOC_REF = re.compile(r"p[aá]g(?:s|inas?)?\.?\s*\d+(?:\s*(?:[-–,]|y)\s*\d+)*"
                       r"|\b(?:numeral|art[ií]culo|art\.|cap[ií]tulo|anexo|secci[oó]n|fracci[oó]n"
                       r"|inciso|lineamiento)s?\s*[\w.]+", re.IGNORECASE)
+# Paréntesis que solo traía índices: tras quitar [n] y 【n】 queda "( )", "(fragmento )"
+# o "(fragmentos y )". Se borra completo con el espacio de antes.
+_EMPTY_PAREN = re.compile(r"[ \t]*\((?:\s|[,;:.]|\b(?:fragmentos?|extractos?|fuentes?|ver|y|e)\b)*\)",
+                          re.IGNORECASE)
 _LOOSE_NUM = re.compile(r"(?<![\d.])\b(\d{1,2})\b(?![\d.])")
 
 
@@ -299,7 +306,9 @@ class RagPipeline:
             timings["total"] = time.perf_counter() - t0
             # Regla 5: los índices [n] del CONTEXTO no deben llegarle al estudiante
             # (el 28-oct se entregó una respuesta con "... 20 días hábiles) [1].")
-            text = re.sub(r"[ \t]+([.,;)])", r"\1", _CITE_BRACKET.sub("", text)).strip()
+            # y si al quitarlos queda un paréntesis vacío ("(fragmento )", 5-nov), se borra
+            text = _EMPTY_PAREN.sub("", _CITE_BRACKET.sub("", text))
+            text = re.sub(r"[ \t]+([.,;)])", r"\1", text).strip()
             text = _with_source(text, hits)
             return RagResult(Outcome.ANSWERED, Reason.NONE, text, hits, max_score,
                              provider, model, attempts, timings, "ok", list(drafts),

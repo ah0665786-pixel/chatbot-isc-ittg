@@ -46,6 +46,17 @@ def _norm(text: str) -> str:
     return " ".join(guards.normalize(text).split())
 
 
+def contains_sentence(text: str, sentence: str) -> bool:
+    """¿Trae el texto esa oración tal cual? Ignora mayúsculas, acentos, espacios
+    especiales (el 5-nov el modelo escribió la oración del Manual con U+202F),
+    espacios de ancho cero y guiones no separables."""
+    def clean(s: str) -> str:
+        s = re.sub(r"[​-‍⁠﻿]", "", s)
+        s = re.sub(r"[‐-―−]", "-", s)
+        return _norm(s).rstrip(". ")
+    return clean(sentence) in clean(text)
+
+
 def check_facts(text: str, facts: dict | None) -> tuple[list[str], list[str]]:
     """(hechos que faltan, añadidos encontrados). Cada hecho es una expresión
     regular sobre el texto en minúsculas, sin acentos y con espacios juntados."""

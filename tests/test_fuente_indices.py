@@ -101,3 +101,32 @@ def test_varias_paginas_del_mismo_documento():
 def test_fuente_que_ya_nombra_documento_no_se_toca(fuente):
     text = f"Texto de la respuesta.\n\n{fuente}"
     assert _source_by_index(text, HITS) == text
+
+
+# 5-nov (prueba de la regla 1 e): el modelo citó "(fragmento [1])" en medio del texto;
+# al quitar el índice quedaba "(fragmento )". Se borra el paréntesis completo.
+def test_parentesis_que_solo_traia_indices_se_borra(kb, cfg):
+    body = ("- Tener aprobado al menos el 70 % de los créditos de su plan de estudios. "
+            "(fragmento [1])\n"
+            "- Presentar la solicitud de autorización para realizar el Servicio Social en otras "
+            "instituciones de Educación Superior (ver Anexo XVIII). (fragmentos [2] y [3])\n"
+            "- El requisito se expresa en porcentaje de créditos aprobados 【1】 [1].")
+    llm = ScriptedLLM(f"{body}\n\n(Fuente: Manual de Lineamientos TecNM, pág. 78)")
+    r = pipe(kb, cfg, llm).answer(Q)
+    assert r.outcome is Outcome.ANSWERED
+    assert "fragmento" not in r.text and "()" not in r.text and "( )" not in r.text
+    assert r.text == ("- Tener aprobado al menos el 70 % de los créditos de su plan de estudios.\n"
+                      "- Presentar la solicitud de autorización para realizar el Servicio Social "
+                      "en otras instituciones de Educación Superior (ver Anexo XVIII).\n"
+                      "- El requisito se expresa en porcentaje de créditos aprobados.\n\n"
+                      "(Fuente: Manual de Lineamientos TecNM, pág. 78)")
+
+
+def test_revision_de_la_oracion_del_manual_ignora_espacios_especiales():
+    from app.grounding_eval import contains_sentence
+    oracion = ("El Servicio Social tiene un valor de 10 créditos en los planes de estudio, donde "
+               "un crédito equivale a 50 horas.")
+    modelo = ("- El Servicio Social tiene un valor de 10 créditos en los planes de "
+              "estudio, donde un crédito​ equivale a 50 horas.  \n- Otro punto.")
+    assert contains_sentence(modelo, oracion)
+    assert not contains_sentence("El Servicio Social vale 10 créditos.", oracion)
