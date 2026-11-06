@@ -396,3 +396,26 @@ def test_metrica_guarda_respuestas_del_modelo_y_reintentos(kb, cfg, tmp_path):
         "SELECT respuestas_modelo, reintentos_sin_info, intentos, resultado FROM metricas").fetchone()
     assert json.loads(row["respuestas_modelo"]) == [f"[intento 1, sin información]\n{NO_INFO}"]
     assert (row["reintentos_sin_info"], row["intentos"], row["resultado"]) == (1, 2, "answered")
+
+
+# ---- valor en créditos del servicio social (observación de la asesora, 5-nov) ------
+SS_VALOR = ("11.4.1.3 Los estudiantes pueden prestar su Servicio Social una vez aprobado el "
+            "porcentaje de créditos de acuerdo con la normativa vigente. 11.4.1.4 El Servicio "
+            "Social tiene un valor de 10 créditos en los planes de estudio, donde un crédito "
+            "equivale a 50 horas. 11.4.1.5 Para ser liberado el Servicio Social se tiene que "
+            "cumplir con los 10 créditos en un periodo no menor de seis meses.")
+
+
+def test_instrucciones_piden_presentar_los_creditos_como_valor_y_no_como_requisito():
+    from app.rag.pipeline import SYSTEM_PROMPT
+    assert "preséntalo como su valor" in SYSTEM_PROMPT
+    assert '"contar con" o "tener"' in SYSTEM_PROMPT
+
+
+def test_redaccion_del_valor_en_creditos_pasa_la_validacion(kb, cfg):
+    p = pipe(kb, cfg, ScriptedLLM(GOOD))
+    hit = Hit(Chunk("manual", "Manual_de_Lineamientos_TecNM.pdf", 140, SS_VALOR, "pág. 77"), 0.9)
+    answer = ("El servicio social vale 10 créditos; un crédito equivale a 50 horas. "
+              "(Manual de Lineamientos, pág. 77)")
+    ok, why = p.validate(answer, [hit], "¿qué requisitos necesito para hacer el servicio social?")
+    assert ok, why

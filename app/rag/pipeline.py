@@ -35,6 +35,10 @@ hacer si el documento no lo dice.
    d) Incluye las condiciones y excepciones que el fragmento pone al trámite que respondes, \
 aunque estén en otra oración o en el párrafo anterior: a quién aplica el trámite (por ejemplo, \
 "todo estudiante que haya cursado...") y qué casos quedan fuera.
+   e) Si el fragmento da el valor en créditos de una actividad (por ejemplo, "el Servicio Social \
+tiene un valor de 10 créditos, donde un crédito equivale a 50 horas"), preséntalo como su valor \
+("el servicio social vale 10 créditos; un crédito equivale a 50 horas"), nunca como algo que el \
+estudiante deba "contar con" o "tener".
 2. Si el CONTEXTO no contiene la respuesta, responde NO_INFO seguido de dos puntos y, en una \
 sola línea, qué le falta al CONTEXTO (por ejemplo "NO_INFO: el CONTEXTO no menciona costos"). \
 Si la pregunta usa otra unidad o calificativo de plazo que el CONTEXTO (por ejemplo "días \
