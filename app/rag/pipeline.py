@@ -176,6 +176,57 @@ def _with_source(text: str, hits: Sequence[Hit]) -> str:
     return f"{text}\n\n(Fuente: {_doc_label(best.chunk.doc_name)}{section})"
 
 
+# Regla 5, fuente que cita por índice. El 5-nov, con el Extracto (un .docx sin
+# página) entre los fragmentos, el modelo terminó con "(Fuente: Manual ..., extractos
+# [1] y [2])": la limpieza de fugas quitó los [n] y al estudiante le llegó "extractos
+# y"; otra vez escribió "extractos 1 y 2". Esa fuente se rehace con el documento y la
+# página de los fragmentos que nombró (o del que más se parece a la respuesta). Va
+# antes de quitar 【n】 y [n], porque esos índices dicen qué fragmentos usó.
+_SOURCE_TAIL = re.compile(r"(?:^|\n)([ \t]*[*_]*\((?:[^()\n]|\([^()\n]*\))*\)[*_]*[ \t]*\.?)\s*$")
+_INDEX_WORD = re.compile(r"\bfragmentos?\b|\bextractos\b|\bextracto\s*[\[【]?\d", re.IGNORECASE)
+_INDEX_MARK = re.compile(r"\[(\d{1,2})\]|【(\d{1,2})[^】]*】")
+# Referencias que sí son del documento y no índices: páginas, numerales, artículos...
+_DOC_REF = re.compile(r"p[aá]g(?:s|inas?)?\.?\s*\d+(?:\s*(?:[-–,]|y)\s*\d+)*"
+                      r"|\b(?:numeral|art[ií]culo|art\.|cap[ií]tulo|anexo|secci[oó]n|fracci[oó]n"
+                      r"|inciso|lineamiento)s?\s*[\w.]+", re.IGNORECASE)
+_LOOSE_NUM = re.compile(r"(?<![\d.])\b(\d{1,2})\b(?![\d.])")
+
+
+def _source_label(hits: Sequence[Hit]) -> str:
+    """"Manual de Lineamientos TecNM, págs. 46 y 78; Extracto ..." en el orden de los fragmentos."""
+    docs: dict[str, list[str]] = {}
+    for h in hits:
+        pages = docs.setdefault(h.chunk.doc_name, [])
+        if h.chunk.section and h.chunk.section not in pages:
+            pages.append(h.chunk.section)
+    parts = []
+    for name, sections in docs.items():
+        nums = [s[5:] for s in sections if s.startswith("pág. ")]
+        if len(nums) > 1 and len(nums) == len(sections):
+            where = f"págs. {', '.join(nums[:-1])} y {nums[-1]}"
+        else:
+            where = ", ".join(sections)
+        parts.append(_doc_label(name) + (f", {where}" if where else ""))
+    return f"(Fuente: {'; '.join(parts)})"
+
+
+def _source_by_index(text: str, hits: Sequence[Hit]) -> str:
+    m = _SOURCE_TAIL.search(text)
+    if not hits or not m:
+        return text
+    source = m.group(1)
+    marks = [int(a or b) for a, b in _INDEX_MARK.findall(source)]
+    loose = [int(n) for n in _LOOSE_NUM.findall(_DOC_REF.sub("", _INDEX_MARK.sub("", source)))]
+    loose = [n for n in loose if 1 <= n <= len(hits)]
+    if not (marks or loose or _INDEX_WORD.search(source)):
+        return text
+    used = [hits[n - 1] for n in dict.fromkeys(marks + loose) if 1 <= n <= len(hits)]
+    if not used:  # "extractos" sin número: el fragmento que más se parece a la respuesta
+        words = _words(text[:m.start()])
+        used = [max(hits, key=lambda h: len(words & _words(h.chunk.text)))]
+    return text[:m.start(1)] + _source_label(used)
+
+
 def _retry_note(why: str) -> str:
     return {LIST_TRUNCATED: LIST_RETRY_NOTE, CONTEXT_DUMP: CONTEXT_DUMP_NOTE}.get(why, RETRY_NOTE)
 
@@ -337,7 +388,7 @@ class RagPipeline:
                               provider=provider, model=model, attempts=attempt - 1)
             timings[f"llm_{attempt}"] = time.perf_counter() - t
             provider, model = reply.provider, reply.model
-            text = _MODEL_CITE.sub("", reply.text).strip()
+            text = _MODEL_CITE.sub("", _source_by_index(reply.text.strip(), hits)).strip()
             if text.upper().startswith("NO_INFO"):
                 # Se guarda siempre (diagnóstico): la regla 2 pide el motivo tras "NO_INFO:"
                 drafts.append(f"[intento {attempt}, sin información]\n{text}")
